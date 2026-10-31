@@ -1,17 +1,17 @@
 # Conda environment for the CS224W enhancer-gene random-walk / SSM project.
 #
-# Works on macOS arm64 (dev), Linux x86_64 (Sherlock / Chimera), and is the
-# reference for the pip installs at the top of main.ipynb when running on Colab.
+# macOS (dev):        mamba env create -f environment.yml
+# Linux GPU cluster:  CONDA_OVERRIDE_CUDA=12.6 mamba env create -f environment.yml
+#                     (login nodes have no GPU; the override makes conda pick the CUDA build of pytorch)
+# then:               conda activate e2g
+#                     python -m ipykernel install --user --name e2g --display-name "Python (e2g)"
 #
-#   mamba env create -f environment.yml        # or: conda env create -f environment.yml
-#   conda activate e2g
-#   python -m ipykernel install --user --name e2g --display-name "Python (e2g)"
+# GPU-only extras (Mamba CUDA kernels; Linux + CUDA only). Optional: the notebook falls back
+# to a plain-PyTorch selective scan without them.
+#   pip install -r requirements-cuda.txt --no-build-isolation
 #
-# GPU-only extras (Mamba SSM kernels need Linux + CUDA; they do NOT build on macOS):
-#   pip install -r requirements-cuda.txt
-#
-# torch / torch_geometric come from pip so that the same file gives the MPS build
-# on a Mac and the CUDA 12 build on Linux.
+# pytorch comes from conda-forge (not pip) so it shares one OpenMP runtime with numpy/scikit-learn;
+# mixing pip torch with conda numpy segfaults on macOS.
 name: e2g
 channels:
   - conda-forge
@@ -27,22 +27,19 @@ dependencies:
   - scikit-learn>=1.4
   - pyarrow>=15          # parquet for processed tables
   - matplotlib>=3.8
-  - seaborn>=0.13
   - tqdm
   - requests
+  - pytorch>=2.3
   # notebook
   - jupyterlab
   - ipykernel
-  - ipywidgets
+  - nbconvert
   # genomics I/O
   - pysam>=0.22          # BAM read counting (ATAC activity)
-  - pybigwig>=0.3.22     # bigWig/bigBed (ENCODE tracks)
   - pyfaidx>=0.8         # indexed access to the GRCh38 FASTA
-  - samtools>=1.19       # CLI: indexing / sanity checks
-  - bedtools>=2.31       # CLI: interval ops (optional; pyranges covers most of it)
+  - samtools>=1.19       # BAM indexing in download_data.sh
   - pip:
-      - torch>=2.3
       - torch_geometric>=2.5
-      - pyranges>=0.1,<0.2   # interval joins on DataFrames
-      - hic-straw>=1.3.1     # streams remote .hic files (no 34 GB download)
-      - transformers>=4.40   # HyenaDNA sequence embeddings (later step)
+      - pyranges>=0.1,<0.2      # interval joins on DataFrames
+      - hic-straw>=1.3.1        # streams remote .hic files (no 34 GB download)
+      - transformers>=4.40,<5   # HyenaDNA remote code targets transformers 4.x
