@@ -30,7 +30,7 @@ pip install -r requirements-cuda.txt --no-build-isolation
 2. **Graph + walks**: Part 2 of `main.ipynb` (CPU; walks are cached per parameter setting).
 3. **Embeddings + Mamba/GNN training** (GPU): Part 3 of `main.ipynb`, or headless on Chimera:
    ```bash
-   rsync -avP --exclude 'data/raw' --exclude '.DS_Store' ./ <user>@<chimera-host>:/scratch/zhoulab/kevin/enhancer_gene_prediction/
+   rsync -avP --exclude 'data/raw' --exclude '.DS_Store' ./ kevin@chimera-login:/scratch/zhoulab/kevin/enhancer_gene_prediction/
    cd /scratch/zhoulab/kevin/enhancer_gene_prediction && sbatch chimera.sbatch
    ```
    The job skips Part 1 (cells tagged `data`) and writes the executed notebook to `main_run_<jobid>.ipynb` and metrics to `data/processed/results.csv`.
