@@ -1,0 +1,770 @@
+% Embed the NeurIPS 2022 style for the standalone editor.
+\begin{filecontents*}{neurips_2022.sty}
+% partial rewrite of the LaTeX2e package for submissions to the
+% Conference on Neural Information Processing Systems (NeurIPS):
+%
+% - uses more LaTeX conventions
+% - line numbers at submission time replaced with aligned numbers from
+%   lineno package
+% - \nipsfinalcopy replaced with [final] package option
+% - automatically loads times package for authors
+% - loads natbib automatically; this can be suppressed with the
+%   [nonatbib] package option
+% - adds foot line to first page identifying the conference
+% - adds preprint option for submission to e.g. arXiv
+% - conference acronym modified
+%
+% Roman Garnett (garnett@wustl.edu) and the many authors of
+% nips15submit_e.sty, including MK and drstrip@sandia
+%
+% last revision: March 2022
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{neurips_2022}[2022/03/31 NeurIPS 2022 submission/camera-ready style file]
+
+% declare final option, which creates camera-ready copy
+\newif\if@neuripsfinal\@neuripsfinalfalse
+\DeclareOption{final}{
+  \@neuripsfinaltrue
+}
+
+% declare nonatbib option, which does not load natbib in case of
+% package clash (users can pass options to natbib via
+% \PassOptionsToPackage)
+\newif\if@natbib\@natbibtrue
+\DeclareOption{nonatbib}{
+  \@natbibfalse
+}
+
+% declare preprint option, which creates a preprint version ready for
+% upload to, e.g., arXiv
+\newif\if@preprint\@preprintfalse
+\DeclareOption{preprint}{
+  \@preprinttrue
+}
+
+\ProcessOptions\relax
+
+% determine whether this is an anonymized submission
+\newif\if@submission\@submissiontrue
+\if@neuripsfinal\@submissionfalse\fi
+\if@preprint\@submissionfalse\fi
+
+% fonts
+\renewcommand{\rmdefault}{ptm}
+\renewcommand{\sfdefault}{phv}
+
+% change this every year for notice string at bottom
+\newcommand{\@neuripsordinal}{36th}
+\newcommand{\@neuripsyear}{2022}
+\newcommand{\@neuripslocation}{New Orleans}
+
+% acknowledgments
+\usepackage{environ}
+\newcommand{\acksection}{\section*{Acknowledgments and Disclosure of Funding}}
+\NewEnviron{ack}{%
+  \acksection
+  \BODY
+}
+
+
+% load natbib unless told otherwise
+\if@natbib
+  \RequirePackage{natbib}
+\fi
+
+% set page geometry
+\usepackage[verbose=true,letterpaper]{geometry}
+\AtBeginDocument{
+  \newgeometry{
+    textheight=9in,
+    textwidth=5.5in,
+    top=1in,
+    headheight=12pt,
+    headsep=25pt,
+    footskip=30pt
+  }
+  \@ifpackageloaded{fullpage}
+    {\PackageWarning{neurips_2022}{fullpage package not allowed! Overwriting formatting.}}
+    {}
+}
+
+\widowpenalty=10000
+\clubpenalty=10000
+\flushbottom
+\sloppy
+
+
+% font sizes with reduced leading
+\renewcommand{\normalsize}{%
+  \@setfontsize\normalsize\@xpt\@xipt
+  \abovedisplayskip      7\p@ \@plus 2\p@ \@minus 5\p@
+  \abovedisplayshortskip \z@ \@plus 3\p@
+  \belowdisplayskip      \abovedisplayskip
+  \belowdisplayshortskip 4\p@ \@plus 3\p@ \@minus 3\p@
+}
+\normalsize
+\renewcommand{\small}{%
+  \@setfontsize\small\@ixpt\@xpt
+  \abovedisplayskip      6\p@ \@plus 1.5\p@ \@minus 4\p@
+  \abovedisplayshortskip \z@  \@plus 2\p@
+  \belowdisplayskip      \abovedisplayskip
+  \belowdisplayshortskip 3\p@ \@plus 2\p@   \@minus 2\p@
+}
+\renewcommand{\footnotesize}{\@setfontsize\footnotesize\@ixpt\@xpt}
+\renewcommand{\scriptsize}{\@setfontsize\scriptsize\@viipt\@viiipt}
+\renewcommand{\tiny}{\@setfontsize\tiny\@vipt\@viipt}
+\renewcommand{\large}{\@setfontsize\large\@xiipt{14}}
+\renewcommand{\Large}{\@setfontsize\Large\@xivpt{16}}
+\renewcommand{\LARGE}{\@setfontsize\LARGE\@xviipt{20}}
+\renewcommand{\huge}{\@setfontsize\huge\@xxpt{23}}
+\renewcommand{\Huge}{\@setfontsize\Huge\@xxvpt{28}}
+
+% sections with less space
+\providecommand{\section}{}
+\renewcommand{\section}{%
+  \@startsection{section}{1}{\z@}%
+                {-2.0ex \@plus -0.5ex \@minus -0.2ex}%
+                { 1.5ex \@plus  0.3ex \@minus  0.2ex}%
+                {\large\bf\raggedright}%
+}
+\providecommand{\subsection}{}
+\renewcommand{\subsection}{%
+  \@startsection{subsection}{2}{\z@}%
+                {-1.8ex \@plus -0.5ex \@minus -0.2ex}%
+                { 0.8ex \@plus  0.2ex}%
+                {\normalsize\bf\raggedright}%
+}
+\providecommand{\subsubsection}{}
+\renewcommand{\subsubsection}{%
+  \@startsection{subsubsection}{3}{\z@}%
+                {-1.5ex \@plus -0.5ex \@minus -0.2ex}%
+                { 0.5ex \@plus  0.2ex}%
+                {\normalsize\bf\raggedright}%
+}
+\providecommand{\paragraph}{}
+\renewcommand{\paragraph}{%
+  \@startsection{paragraph}{4}{\z@}%
+                {1.5ex \@plus 0.5ex \@minus 0.2ex}%
+                {-1em}%
+                {\normalsize\bf}%
+}
+\providecommand{\subparagraph}{}
+\renewcommand{\subparagraph}{%
+  \@startsection{subparagraph}{5}{\z@}%
+                {1.5ex \@plus 0.5ex \@minus 0.2ex}%
+                {-1em}%
+                {\normalsize\bf}%
+}
+\providecommand{\subsubsubsection}{}
+\renewcommand{\subsubsubsection}{%
+  \vskip5pt{\noindent\normalsize\rm\raggedright}%
+}
+
+% float placement
+\renewcommand{\topfraction      }{0.85}
+\renewcommand{\bottomfraction   }{0.4}
+\renewcommand{\textfraction     }{0.1}
+\renewcommand{\floatpagefraction}{0.7}
+
+\newlength{\@neuripsabovecaptionskip}\setlength{\@neuripsabovecaptionskip}{7\p@}
+\newlength{\@neuripsbelowcaptionskip}\setlength{\@neuripsbelowcaptionskip}{\z@}
+
+\setlength{\abovecaptionskip}{\@neuripsabovecaptionskip}
+\setlength{\belowcaptionskip}{\@neuripsbelowcaptionskip}
+
+% swap above/belowcaptionskip lengths for tables
+\renewenvironment{table}
+  {\setlength{\abovecaptionskip}{\@neuripsbelowcaptionskip}%
+   \setlength{\belowcaptionskip}{\@neuripsabovecaptionskip}%
+   \@float{table}}
+  {\end@float}
+
+% footnote formatting
+\setlength{\footnotesep }{6.65\p@}
+\setlength{\skip\footins}{9\p@ \@plus 4\p@ \@minus 2\p@}
+\renewcommand{\footnoterule}{\kern-3\p@ \hrule width 12pc \kern 2.6\p@}
+\setcounter{footnote}{0}
+
+% paragraph formatting
+\setlength{\parindent}{\z@}
+\setlength{\parskip  }{5.5\p@}
+
+% list formatting
+\setlength{\topsep       }{4\p@ \@plus 1\p@   \@minus 2\p@}
+\setlength{\partopsep    }{1\p@ \@plus 0.5\p@ \@minus 0.5\p@}
+\setlength{\itemsep      }{2\p@ \@plus 1\p@   \@minus 0.5\p@}
+\setlength{\parsep       }{2\p@ \@plus 1\p@   \@minus 0.5\p@}
+\setlength{\leftmargin   }{3pc}
+\setlength{\leftmargini  }{\leftmargin}
+\setlength{\leftmarginii }{2em}
+\setlength{\leftmarginiii}{1.5em}
+\setlength{\leftmarginiv }{1.0em}
+\setlength{\leftmarginv  }{0.5em}
+\def\@listi  {\leftmargin\leftmargini}
+\def\@listii {\leftmargin\leftmarginii
+              \labelwidth\leftmarginii
+              \advance\labelwidth-\labelsep
+              \topsep  2\p@ \@plus 1\p@    \@minus 0.5\p@
+              \parsep  1\p@ \@plus 0.5\p@ \@minus 0.5\p@
+              \itemsep \parsep}
+\def\@listiii{\leftmargin\leftmarginiii
+              \labelwidth\leftmarginiii
+              \advance\labelwidth-\labelsep
+              \topsep    1\p@ \@plus 0.5\p@ \@minus 0.5\p@
+              \parsep    \z@
+              \partopsep 0.5\p@ \@plus 0\p@ \@minus 0.5\p@
+              \itemsep \topsep}
+\def\@listiv {\leftmargin\leftmarginiv
+              \labelwidth\leftmarginiv
+              \advance\labelwidth-\labelsep}
+\def\@listv  {\leftmargin\leftmarginv
+              \labelwidth\leftmarginv
+              \advance\labelwidth-\labelsep}
+\def\@listvi {\leftmargin\leftmarginvi
+              \labelwidth\leftmarginvi
+              \advance\labelwidth-\labelsep}
+
+% create title
+\providecommand{\maketitle}{}
+\renewcommand{\maketitle}{%
+  \par
+  \begingroup
+    \renewcommand{\thefootnote}{\fnsymbol{footnote}}
+    % for perfect author name centering
+    \renewcommand{\@makefnmark}{\hbox to \z@{$^{\@thefnmark}$\hss}}
+    % The footnote-mark was overlapping the footnote-text,
+    % added the following to fix this problem               (MK)
+    \long\def\@makefntext##1{%
+      \parindent 1em\noindent
+      \hbox to 1.8em{\hss $\m@th ^{\@thefnmark}$}##1
+    }
+    \thispagestyle{empty}
+    \@maketitle
+    \@thanks
+    \@notice
+  \endgroup
+  \let\maketitle\relax
+  \let\thanks\relax
+}
+
+% rules for title box at top of first page
+\newcommand{\@toptitlebar}{
+  \hrule height 4\p@
+  \vskip 0.25in
+  \vskip -\parskip%
+}
+\newcommand{\@bottomtitlebar}{
+  \vskip 0.29in
+  \vskip -\parskip
+  \hrule height 1\p@
+  \vskip 0.09in%
+}
+
+% create title (includes both anonymized and non-anonymized versions)
+\providecommand{\@maketitle}{}
+\renewcommand{\@maketitle}{%
+  \vbox{%
+    \hsize\textwidth
+    \linewidth\hsize
+    \vskip 0.1in
+    \@toptitlebar
+    \centering
+    {\LARGE\bf \@title\par}
+    \@bottomtitlebar
+    \if@submission
+      \begin{tabular}[t]{c}\bf\rule{\z@}{24\p@}
+        Anonymous Author(s) \\
+        Affiliation \\
+        Address \\
+        \texttt{email} \\
+      \end{tabular}%
+    \else
+      \def\And{%
+        \end{tabular}\hfil\linebreak[0]\hfil%
+        \begin{tabular}[t]{c}\bf\rule{\z@}{24\p@}\ignorespaces%
+      }
+      \def\AND{%
+        \end{tabular}\hfil\linebreak[4]\hfil%
+        \begin{tabular}[t]{c}\bf\rule{\z@}{24\p@}\ignorespaces%
+      }
+      \begin{tabular}[t]{c}\bf\rule{\z@}{24\p@}\@author\end{tabular}%
+    \fi
+    \vskip 0.3in \@minus 0.1in
+  }
+}
+
+% add conference notice to bottom of first page
+\newcommand{\ftype@noticebox}{8}
+\newcommand{\@notice}{%
+  % give a bit of extra room back to authors on first page
+  \enlargethispage{2\baselineskip}%
+  \@float{noticebox}[b]%
+    \footnotesize\@noticestring%
+  \end@float%
+}
+
+% abstract styling
+\renewenvironment{abstract}%
+{%
+  \vskip 0.075in%
+  \centerline%
+  {\large\bf Abstract}%
+  \vspace{0.5ex}%
+  \begin{quote}%
+}
+{
+  \par%
+  \end{quote}%
+  \vskip 1ex%
+}
+
+% For the paper checklist
+\newcommand{\answerYes}[1][]{\textcolor{blue}{[Yes] #1}}
+\newcommand{\answerNo}[1][]{\textcolor{orange}{[No] #1}}
+\newcommand{\answerNA}[1][]{\textcolor{gray}{[N/A] #1}}
+\newcommand{\answerTODO}[1][]{\textcolor{red}{\bf [TODO]}}
+
+% handle tweaks for camera-ready copy vs. submission copy
+\if@preprint
+  \newcommand{\@noticestring}{%
+    Preprint. Under review.%
+  }
+\else
+  \if@neuripsfinal
+    \newcommand{\@noticestring}{%
+      \@neuripsordinal\/ Conference on Neural Information Processing Systems
+      (NeurIPS \@neuripsyear).%, \@neuripslocation.%
+    }
+  \else
+    \newcommand{\@noticestring}{%
+      Submitted to \@neuripsordinal\/ Conference on Neural Information
+      Processing Systems (NeurIPS \@neuripsyear). Do not distribute.%
+    }
+
+    % hide the acknowledgements
+    \NewEnviron{hide}{}
+    \let\ack\hide
+    \let\endack\endhide
+
+    % line numbers for submission
+    \RequirePackage{lineno}
+    \linenumbers
+
+    % fix incompatibilities between lineno and amsmath, if required, by
+    % transparently wrapping linenomath environments around amsmath
+    % environments
+    \AtBeginDocument{%
+      \@ifpackageloaded{amsmath}{%
+        \newcommand*\patchAmsMathEnvironmentForLineno[1]{%
+          \expandafter\let\csname old#1\expandafter\endcsname\csname #1\endcsname
+          \expandafter\let\csname oldend#1\expandafter\endcsname\csname end#1\endcsname
+          \renewenvironment{#1}%
+                          {\linenomath\csname old#1\endcsname}%
+                          {\csname oldend#1\endcsname\endlinenomath}%
+        }%
+        \newcommand*\patchBothAmsMathEnvironmentsForLineno[1]{%
+          \patchAmsMathEnvironmentForLineno{#1}%
+          \patchAmsMathEnvironmentForLineno{#1*}%
+        }%
+        \patchBothAmsMathEnvironmentsForLineno{equation}%
+        \patchBothAmsMathEnvironmentsForLineno{align}%
+        \patchBothAmsMathEnvironmentsForLineno{flalign}%
+        \patchBothAmsMathEnvironmentsForLineno{alignat}%
+        \patchBothAmsMathEnvironmentsForLineno{gather}%
+        \patchBothAmsMathEnvironmentsForLineno{multline}%
+      }
+      {}
+    }
+  \fi
+\fi
+
+
+\endinput
+
+\end{filecontents*}
+
+\documentclass{article}
+
+% natbib must be numeric for plain \bibitem entries; pass before loading the style
+\PassOptionsToPackage{numbers, compress}{natbib}
+
+% [final] shows author names; the default anonymizes and adds line numbers
+\usepackage[final]{neurips_2022}
+
+% ---------- packages ----------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{comment}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+
+% replace the conference notice in the first-page footer (delete to keep the stock one)
+\makeatletter
+\renewcommand{\@noticestring}{ }
+\makeatother
+
+% ---------- macros ----------
+\newcommand{\bA}{\bar{A}}
+\newcommand{\bB}{\bar{B}}
+\newcommand{\Elin}{E_{\mathrm{lin}}}
+\newcommand{\Ehic}{E_{\mathrm{HiC}}}
+\DeclareMathOperator{\softplus}{softplus}
+\DeclareMathOperator{\MLP}{MLP}
+\DeclareMathOperator{\AGG}{AGG}
+\DeclareMathOperator{\UPD}{UPDATE}
+\DeclareMathOperator*{\POOL}{POOL}
+\DeclareMathOperator{\SSM}{SSM}
+\DeclareMathOperator{\BiMamba}{BiMamba}
+\DeclareMathOperator{\LN}{LN}
+\DeclareMathOperator{\flip}{flip}
+\DeclareMathOperator{\pos}{pos}
+
+\title{CS224W Project Proposal}
+
+\author{%
+  Enbao Cao \\
+  Stanford University \\
+  \texttt{enbao@stanford.edu} \\  
+  \And
+  Kevin Chen \\
+  Stanford University \\
+  \texttt{kchen24@stanford.edu} \\
+}
+
+\begin{document}
+
+\maketitle
+
+%=====================================================================
+\section{Research question}
+Can we predict enhancer-gene regulation from random walks along a gene's regulatory neighborhood encoded by a selective state space model?
+
+%=====================================================================
+\section{Motivation}
+DNA is made up of regions. Possible regions include:
+\begin{itemize}[nosep]
+  \item Genes: instructions. Transcribed to make RNA or protein
+  \item Regulatory regions
+  \begin{itemize}[nosep]
+    \item Enhancer: controls transcription frequency
+    \item Promoter: where transcription starts
+    \item Other regulators
+  \end{itemize}
+  \item Many more that we will not get into!
+\end{itemize}
+
+% insert figure here maybe?
+
+Different cells have the same DNA but need to express different genes $\rightarrow$ our regulatory code controls this. Enhancers are a big part of that code, but predicting which gene an enhancer regulates is hard! An enhancer can be up to 1 Mb away from its target gene in the linear sequence \cite{lettice2003}, and it often skips over nearer genes to reach it. How? DNA is a sequence, but it folds: an enhancer that is far from a gene in sequence can sit right next to its promoter in 3D. Hi-C \cite{liebermanaiden2009} measures these physical contacts genome-wide. Thus, if we want to predict enhancer-gene regulation, we need a way to model long-range interactions that accounts for both the linear genome and how it folds.
+
+%=====================================================================
+\section{Dataset}
+We use the ENCODE-rE2G K562 CRISPR benchmark \cite{gschwind2023encode}, which contains enhancer--gene pairs labeled by whether the enhancer regulates the gene. We chose this benchmark because its CRISPR perturbations directly test enhancer-gene regulation, and the K562 cell line it uses has public ATAC-seq data for regulatory regions and Hi-C data for contact frequency. It pools three CRISPR screens, summarized in Table~\ref{tab:data}.
+
+\begin{table}[h]
+  \caption{The three CRISPR screens in the ENCODE-rE2G K562 benchmark.}
+  \label{tab:data}
+  \centering
+  \begin{tabular}{lrrr}
+    \toprule
+    Dataset & Pairs & Positives & Positive rate \\
+    \midrule
+    Gasperini et al.\ 2019 \cite{gasperini2019}     & 5,299  & 360 & 6.8\% \\
+    Nasser et al.\ 2021 \cite{nasser2021}           & 3,751  & 88  & 2.3\% \\
+    Schraivogel et al.\ 2020 \cite{schraivogel2020} & 1,306  & 23  & 1.8\% \\
+    \midrule
+    Total                                           & 10,356 & 471 & 4.5\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Each pair has}
+\begin{description}[nosep]
+  \item[Enhancer location] genomic coordinates of the perturbed element
+  \item[Gene location] genomic coordinates of the gene's TSS
+  \item[Binary label] whether interfering with the enhancer significantly reduced the gene's expression
+\end{description}
+
+\paragraph{What we need to assemble}
+\begin{description}[nosep]
+  \item[Sequence] the DNA sequence at each enhancer and gene location, from the GRCh38 reference genome (public, NCBI)
+  \item[Accessibility] ATAC-seq peaks and read counts at those regions, from K562 ATAC-seq (ENCODE); this defines the candidate elements and gives the activity term of ABC and our node features
+  \item[Contacts] Hi-C contact frequencies between those regions, from K562 Hi-C (ENCODE)
+\end{description}
+
+The CRISPR benchmark, GRCh38 sequence, K562 ATAC-seq, and K562 Hi-C are all publicly available. 
+
+%=====================================================================
+\section{Previous work}
+\begin{description}
+  \item[Activity by Contact (ABC) \cite{fulco2019abc}] Activity (measured by ATAC-seq) $\times$ Contact Frequency (measured by Hi-C), normalized by Activity $\times$ Contact Frequency for all potential enhancers\footnote{potential enhancers (def): Call ATAC peaks with MACS2, center a 500 bp window on each of them, keep top 150,000 highest coverage windows and merge overlaps, add every gene's promoter (TSS $\pm$ 250 bp)} within 5 Mb.
+  \item[ENCODE-rE2G \cite{gschwind2023encode}] Logistic regression built from ABC features (+ \# of candidate peaks, how many protein TSS in between, activity of other peaks within 5 kb, etc.).
+  \item[graphE2G \cite{graphe2g}] Previous 224W project. Heterogeneous graph with nodes = (genes, elements) and edges = (regulation-based, Hi-C based, distance-based). Node features are ATAC counts for that element.
+  \item[Omnii-1 \cite{radicalnumericsomnii}] Newly released multimodal genomic foundation model. When combined with rE2G features, outperforms all previous metrics.
+\end{description}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.85\linewidth]{figures/benchmark.png}
+  \caption{Enhancer--gene prediction benchmark results (AUPRC) reported by Radical Numerics \cite{radicalnumericsomnii}.}
+  \label{fig:benchmark}
+\end{figure}
+
+%=====================================================================
+\section{Task}
+Predict enhancer-gene regulation from random walks along a gene's regulatory neighborhood encoded using a selective state space model.
+
+\textbf{Hypothesis to test:} Is this setup better than baselines?
+
+%=====================================================================
+\section{Methods}
+
+\subsection{Graph construction}
+We first construct a homogeneous, undirected graph: linear with respect to the genome, with extra Hi-C edges. For each chromosome, the node set $V=\{v_1,\ldots,v_n\}$ is the set of potential enhancers defined above (the 500 bp ATAC windows plus every promoter), sorted by genomic coordinate $\pos(v_1)<\cdots<\pos(v_n)$, so genes are represented by their promoter nodes and the graph has a single node type. The edge set is $E=\Elin\cup\Ehic$ with
+\begin{align}
+  \Elin &= \{\{v_i,v_{i+1}\} : 1\le i<n\},\\
+  \Ehic &= \{\{u,v\} : u\ne v,\ |\pos(u)-\pos(v)|\le 5\ \mathrm{Mb},\ O_{uv}/E_{uv}\ge\tau\},
+\end{align}
+where $O_{uv}$ is the normalized K562 Hi-C contact count between the bins containing $u$ and $v$, $E_{uv}$ is the expected count at that genomic separation (the distance-decay baseline), and $\tau$ is a sparsification threshold. Both edge types encode symmetric physical relationships (linear adjacency, and Hi-C contact, which satisfies $O_{uv}=O_{vu}$), so $G$ is undirected with symmetric weights. Direction enters only through the walk itself: each step is an ordered token carrying the signed genomic distance of that step, and the node2vec return parameter $p$ (Section~\ref{sec:walks}) discourages immediately retracing an edge, including a Hi-C edge.
+
+Each node carries features
+\begin{equation}
+  x_v=\big[\,a_v;\ s_v\,\big],
+\end{equation}
+where $a_v$ is the log ATAC-seq count in the window and $s_v$ is an embedding of the window's GRCh38 sequence from a pretrained DNA language model (for now, HyenaDNA \cite{nguyen2023hyenadna}). Each edge $\{u,v\}$ carries its type $\in\{\mathrm{lin},\mathrm{HiC}\}$, the genomic distance $|\pos(u)-\pos(v)|$, and, for Hi-C edges, $O_{uv}/E_{uv}$; the sign of the distance is attached to each step of a walk according to the direction it was traversed.
+
+\subsection{Random-walk sampling}
+\label{sec:walks}
+We then sample $N$ random walks per node, where we move to adjacent (physically) elements at a base probability or jump through a Hi-C edge (probability set to observed/expected); each walk is a token sequence. A walk of length $L$ anchored at $u$ is $\omega=(\omega_0,\omega_1,\ldots,\omega_L)$ with $\omega_0=u$. Define unnormalized edge weights
+\begin{equation}\label{eq:pi}
+  \pi_{uv}=
+  \begin{cases}
+    \beta & (u,v)\in\Elin\\
+    O_{uv}/E_{uv} & (u,v)\in\Ehic\\
+    0 & \text{otherwise,}
+  \end{cases}
+\end{equation}
+so that the first-order transition probability is
+\begin{equation}\label{eq:first}
+  P(\omega_{t+1}=v\mid\omega_t=u)=\frac{\pi_{uv}}{\sum_{v'}\pi_{uv'}}.
+\end{equation}
+Since $O/E=1$ means ``as much contact as expected at that distance,'' the base probability $\beta$ sets the exchange rate between linear steps and Hi-C jumps: a Hi-C edge is taken more often than a linear step exactly when its contact enrichment exceeds $\beta$.
+
+\paragraph{Connection to node2vec.}
+Following node2vec \cite{grover2016node2vec}, we make the walk second order by biasing each step with a return parameter $p$ and an in--out parameter $q$,
+\begin{equation}\label{eq:second}
+  P(\omega_{t+1}=v\mid\omega_t=u,\omega_{t-1}=s)
+  =\frac{\alpha_{pq}(s,v)\,\pi_{uv}}{\sum_{v'}\alpha_{pq}(s,v')\,\pi_{uv'}},
+  \qquad
+  \alpha_{pq}(s,v)=
+  \begin{cases}
+    1/p & d_{sv}=0\\
+    1   & d_{sv}=1\\
+    1/q & d_{sv}=2,
+  \end{cases}
+\end{equation}
+where $d_{sv}$ is the hop distance between the previous node $s$ and the candidate $v$. On a chain, an unbiased walk spends most of its steps oscillating around the anchor; $p>1$ suppresses immediate backtracking so that a walk of $L$ steps covers on the order of $L$ distinct elements, and $q$ interpolates between local, BFS-like walks ($q>1$) that resample the immediate neighborhood and far-reaching, DFS-like walks ($q<1$) that follow Hi-C edges out to distal elements. We keep node2vec's sampling strategy (and its $p,q$ knobs) but replace the shallow encoder with a deep sequence encoder over the node features along each walk, trained end-to-end on the regulation labels, so that embeddings are inductive (they transfer to held-out chromosomes) and task-specific.
+
+\paragraph{Tokenization.}
+Each visited node becomes a token that records both the element and the step taken to reach it:
+\begin{align}
+  \tilde{x}_0 &= W_x x_{\omega_0}+e_{\mathrm{anchor}},\label{eq:token0}\\
+  \tilde{x}_t &= W_x x_{\omega_t}+e_{\mathrm{type}(\omega_{t-1},\omega_t)}
+  +\rho\big(d_{\omega_{t-1}\omega_t}\big)
+  +\rho'\big(\log O_{\omega_{t-1}\omega_t}/E_{\omega_{t-1}\omega_t}\big),
+  \qquad t\ge 1,\label{eq:token}
+\end{align}
+where the $e$'s are learned edge-type embeddings, $\rho$ is a sinusoidal encoding of the signed, log-scaled genomic distance of the step, and $\rho'$ encodes the contact enrichment of the step (zero for linear steps).
+
+
+\subsection{Encoding walks with a selective state space model}
+We encode each walk with $M$ bidirectional Mamba blocks \cite{gu2023mamba}, using residual connections and layer normalization. Mamba's input-dependent state updates allow the encoder to selectively retain or forget information along the walk. We process each walk in both directions and sum the aligned outputs, so the anchor at position 0 can incorporate information from later elements. Let $H^{(M),(k)}_0$ denote the final anchor representation for walk $k$.
+
+\paragraph{Pooling across walks.}
+The node embedding is the anchor position of the last layer, averaged over the $N$ walks:
+\begin{equation}\label{eq:pool}
+  z_u=\frac{1}{N}\sum_{k=1}^{N}H^{(M),(k)}_{0}.
+\end{equation}
+Mean pooling is permutation invariant over the exchangeable set of walks.
+
+
+\subsection{Pair prediction and training}
+For a benchmark pair $(e,g)$, with $g$ represented by its promoter node, we score
+\begin{equation}\label{eq:pair}
+  \hat{y}_{eg}=\sigma\Big(\MLP\big([\,z_e;\ z_g;\ z_e\odot z_g\,]\big)\Big),
+\end{equation}
+so the prediction depends only on the walk embeddings, which lets us see what the walks alone capture. As an extension, a ``+rE2G features'' variant appends a vector $\phi_{eg}$ of pair-level features (log distance, Hi-C contact, ABC score) to the MLP input, $[\,z_e;\ z_g;\ z_e\odot z_g;\ \phi_{eg}\,]$, to test whether the walks add information beyond what rE2G already uses. Because positives are about $4.5\%$ of pairs we use a class-weighted binary cross-entropy,
+\begin{equation}\label{eq:loss}
+  \mathcal{L}=-\frac{1}{|\mathcal{D}|}\sum_{(e,g,y)\in\mathcal{D}}
+  \Big[w_{+}\,y\log\hat{y}_{eg}+(1-y)\log(1-\hat{y}_{eg})\Big].
+\end{equation}
+Walks are resampled every epoch, which acts as neighborhood-level data augmentation in the same way neighbor sampling does in GraphSAGE \cite{hamilton2017graphsage}.
+
+\subsection{Why this is appropriate}
+
+\paragraph{Biological intuition.}
+We assume we take enough steps in the walk to capture regulatory information; at each layer, each node is updated with information about its potential regulators.
+
+\paragraph{ML intuition.}
+Mamba replaces the aggregator of a GNN. A message-passing layer computes
+\begin{equation}\label{eq:mp}
+  h^{(\ell+1)}_u=\UPD\Big(h^{(\ell)}_u,\ \AGG\big\{h^{(\ell)}_v : v\in\mathcal{N}(u)\big\}\Big)
+\end{equation}
+with a permutation-invariant $\AGG$ (sum, mean, or max in GCN, GraphSAGE, and GIN; attention in GAT). In our model,
+\begin{equation}\label{eq:ours}
+  z_u=\POOL_{k=1}^{N}\ \SSM\big(\tilde{x}_{\omega^{(k)}_0},\ldots,\tilde{x}_{\omega^{(k)}_L}\big),
+\end{equation}
+the SSM is an order- and distance-aware aggregator over an $L$-hop neighborhood in a single layer, and pooling over walks restores permutation invariance. What is specific to our setting is a graph in which edge distances and contact strengths have physical meaning, so the SSM's learned decay can be read as a statement about genome structure.
+
+\paragraph{If it works, potentially why? (empirical reasoning)}
+\begin{enumerate}[nosep]
+  \item \textbf{Order and distance along the path.} Mamba state space decay is an analogy to genomic distance decay, playing the role of a power-law contact prior.
+  \item \textbf{Learned, potentially interpretable insulation.} The model can learn to gate the state space when crossing certain elements, so that everything beyond them is forgotten. In biology, CTCF-bound TAD separates regions such that partitioned elements rarely associate. When we hit that feature, we want to erase the state space memory.
+  \item \textbf{Hi-C as a shortcut.} A Hi-C edge can connect elements hundreds of kilobases away, allowing information to pass between distal enhancers and circumventing the long-context problem.
+\end{enumerate}
+
+\subsection{Evaluation}
+We evaluate with chromosome-held-out cross-validation on the pooled benchmark and report the ENCODE-rE2G metrics, AUPRC and precision at 70\% recall, per dataset and pooled.
+
+\begin{comment}
+Table~\ref{tab:baselines} lists the comparisons.
+
+\begin{table}[h]
+\caption{Baselines and ablations.}
+\label{tab:baselines}
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+Model & What the comparison isolates \\
+\midrule
+ABC score \cite{fulco2019abc} & activity $\times$ contact with no learning \\
+ENCODE-rE2G \cite{gschwind2023encode} & hand-engineered features + logistic regression \\
+graphE2G \cite{graphe2g} & message passing on the same information \\
+node2vec + logistic regression & same walks, shallow encoder \\
+\midrule
+Ours, no SSM (mean over walk tokens) & value of order along the path \\
+Ours, no distance tokens & mechanism 1 \\
+Ours, S4 / Transformer encoder & mechanism 2 \\
+Ours, linear walks only; shuffled $O/E$ & mechanism 3 \\
+Ours, full & \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{comment}
+
+%=====================================================================
+{\small
+\begin{thebibliography}{99}
+
+\bibitem{lettice2003}
+L.~A. Lettice, S.~J.~H. Heaney, L.~A. Purdie, L. Li, P. de Beer, et al.
+A long-range Shh enhancer regulates expression in the developing limb and fin and is mutated in preaxial polydactyly.
+\emph{Human Molecular Genetics}, 12(14):1725--1735, 2003.
+
+\bibitem{liebermanaiden2009}
+E. Lieberman-Aiden, N.~L. van Berkum, L. Williams, M. Imakaev, T. Ragoczy, et al.
+Comprehensive mapping of long-range interactions reveals folding principles of the human genome.
+\emph{Science}, 326(5950):289--293, 2009.
+
+\bibitem{gschwind2023encode}
+A.~R. Gschwind, K.~S. Mualim, A. Karbalayghareh, M.~U. Sheth, K.~K. Dey, et al.
+An encyclopedia of enhancer-gene regulatory interactions in the human genome.
+\emph{bioRxiv}, 2023.
+
+\bibitem{gasperini2019}
+M. Gasperini, A.~J. Hill, J.~L. McFaline-Figueroa, B. Martin, S. Kim, et al.
+A genome-wide framework for mapping gene regulation via cellular genetic screens.
+\emph{Cell}, 176(1):377--390, 2019.
+
+\bibitem{nasser2021}
+J. Nasser, D.~T. Bergman, C.~P. Fulco, P. Guckelberger, B.~R. Doughty, et al.
+Genome-wide enhancer maps link risk variants to disease genes.
+\emph{Nature}, 593:238--243, 2021.
+
+\bibitem{schraivogel2020}
+D. Schraivogel, A.~R. Gschwind, J.~H. Milbank, D.~R. Leonce, E. Sauer, L. Velten, and L.~M. Steinmetz.
+Targeted Perturb-seq enables genome-scale genetic screens in single cells.
+\emph{Nature Methods}, 17:629--635, 2020.
+
+\bibitem{fulco2019abc}
+C.~P. Fulco, J. Nasser, T.~R. Jones, G. Munson, D.~T. Bergman, et al.
+Activity-by-contact model of enhancer--promoter regulation from thousands of CRISPR perturbations.
+\emph{Nature Genetics}, 51:1664--1669, 2019.
+
+\bibitem{nguyen2023hyenadna}
+E. Nguyen, M. Poli, M. Faizi, A. Thomas, C. Birch-Sykes, et al.
+HyenaDNA: Long-range genomic sequence modeling at single nucleotide resolution.
+In \emph{NeurIPS}, 2023.
+
+\bibitem{grover2016node2vec}
+A. Grover and J. Leskovec.
+node2vec: Scalable feature learning for networks.
+In \emph{KDD}, 2016.
+
+\bibitem{gu2023mamba}
+A. Gu and T. Dao.
+Mamba: Linear-time sequence modeling with selective state spaces.
+\emph{arXiv:2312.00752}, 2023.
+
+\bibitem{gu2022s4}
+A. Gu, K. Goel, and C. R\'e.
+Efficiently modeling long sequences with structured state spaces.
+In \emph{ICLR}, 2022.
+
+\bibitem{schiff2024caduceus}
+Y. Schiff, C.-H. Kao, A. Gokaslan, T. Dao, A. Gu, and V. Kuleshov.
+Caduceus: Bi-directional equivariant long-range DNA sequence modeling.
+In \emph{ICML}, 2024.
+
+\bibitem{hamilton2017graphsage}
+W.~L. Hamilton, R. Ying, and J. Leskovec.
+Inductive representation learning on large graphs.
+In \emph{NeurIPS}, 2017.
+
+% ---- Not cited in the current text. Delete, or add \cite{} where relevant. ----
+
+\bibitem{perozzi2014deepwalk}
+B. Perozzi, R. Al-Rfou, and S. Skiena.
+DeepWalk: Online learning of social representations.
+In \emph{KDD}, 2014.
+
+\bibitem{tonshoff2023crawl}
+J. T\"onshoff, M. Ritzert, H. Wolf, and M. Grohe.
+Walking out of the Weisfeiler Leman hierarchy: Graph learning beyond message passing.
+\emph{Transactions on Machine Learning Research}, 2023.
+
+\bibitem{behrouz2024graphmamba}
+A. Behrouz and F. Hashemi.
+Graph Mamba: Towards learning on graphs with state space models.
+In \emph{KDD}, 2024.
+
+\bibitem{chen2024neuralwalker}
+D. Chen, T.~H. Schulz, and K. Borgwardt.
+Learning long range dependencies on graphs via random walks.
+\emph{arXiv:2406.03386}, 2024.
+
+
+\bibitem{radicalnumericsomnii}
+Radical Numerics.
+Generative multiomic modeling with Omnii-1.
+\url{https://www.radicalnumerics.ai/blog/omnii-genome}.
+
+\bibitem{graphe2g}
+Valeh Valiollah Pour Amiri, Tony Zeng, and Garyk Brixi.
+graphE2G: Linking Genes and Their Regulatory Elements Using Graph Neural Network.
+\emph{Stanford CS224W: Machine Learning with Graphs}, Medium, October 2, 2024.
+\url{https://medium.com/stanford-cs224w/graphe2g-linking-genes-and-their-regulatory-elements-using-graph-neural-networks-a307c29341bf}.
+
+\end{thebibliography}
+}
+
+\end{document}

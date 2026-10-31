@@ -1,0 +1,51 @@
+# Data: everything is re-downloadable / regenerable from main.ipynb
+data/
+*.bam
+*.bai
+*.hic
+*.cool
+*.mcool
+*.fa
+*.fa.gz
+*.fasta
+*.fai
+*.bigWig
+*.bw
+*.parquet
+*.part
+
+# Model artifacts / experiment outputs
+checkpoints/
+runs/
+wandb/
+lightning_logs/
+*.pt
+*.ckpt
+
+# Python / Jupyter
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+.env
+
+# LaTeX build products
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+neurips_2022.sty
+
+# Cluster job logs
+slurm-*.out
+*.err
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
