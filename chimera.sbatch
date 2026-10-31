@@ -15,7 +15,7 @@ cd "$SLURM_SUBMIT_DIR"
 
 source "$(conda info --base 2>/dev/null || echo /scratch/zhoulab/kevin/miniforge3)/etc/profile.d/conda.sh"
 conda activate e2g
-export HF_HOME=/scratch/zhoulab/kevin/hf_cache   # HyenaDNA weights; keeps $HOME quota free
+export HF_HOME=/home/kevin/hf_cache   # HyenaDNA weights cache
 nvidia-smi --query-gpu=name,memory.total --format=csv
 
 jupyter nbconvert --to notebook --execute main.ipynb --output "main_run_${SLURM_JOB_ID}.ipynb" \
