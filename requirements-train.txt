@@ -1,0 +1,8 @@
+# Minimal cached-data training/evaluation dependencies. Python 3.10-3.12.
+torch==2.7.0
+torch-geometric==2.8.0
+numpy==1.26.4
+pandas==2.3.3
+scipy==1.15.3
+scikit-learn==1.7.2
+pyarrow==20.0.0
