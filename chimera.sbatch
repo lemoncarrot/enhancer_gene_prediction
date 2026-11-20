@@ -1,6 +1,6 @@
 #!/bin/bash
 # Production run: HyenaDNA embeddings -> walks -> Mamba + GNN chromosome-held-out CV.
-# Runs main.ipynb headless, skipping Part 1 (cells tagged "data"); expects data/processed/ already synced.
+# Runs main.ipynb without data-tagged cells; expects data/processed/ already synced.
 # Submit from the repo root:  sbatch chimera.sbatch
 #SBATCH --job-name=e2g
 #SBATCH --partition=zhoulab_gpu_priority,preemptible   # runs on whichever has a free GPU first
@@ -19,5 +19,5 @@ export HF_HOME=/home/kevin/hf_cache   # HyenaDNA weights cache
 nvidia-smi --query-gpu=name,memory.total --format=csv
 
 jupyter nbconvert --to notebook --execute main.ipynb --output "main_run_${SLURM_JOB_ID}.ipynb" \
-    --ExecutePreprocessor.timeout=-1 --ExecutePreprocessor.kernel_name=python3 \
+    --ExecutePreprocessor.timeout=-1 --ExecutePreprocessor.kernel_name=e2g \
     --TagRemovePreprocessor.enabled=True --TagRemovePreprocessor.remove_cell_tags='["data"]'

@@ -14,7 +14,7 @@ need to design synthetic data experiments to show what we hypothesize this archi
 
 ### Environment
 ```bash
-mamba env create -f environment.yml          # on a GPU node, conda picks the CUDA build of pytorch
+conda env create -f environment.yml          # on a GPU node, conda picks the CUDA build of pytorch
 conda activate e2g
 python -m ipykernel install --user --name e2g --display-name "Python (e2g)"
 ```
@@ -26,11 +26,14 @@ pip install -r requirements-cuda.txt --no-build-isolation
 ```
 
 ### Pipeline
-1. **Data** (local, ~10 GB raw): `./download_data.sh`, then run Part 1 of `main.ipynb`. Hi-C is streamed from ENCODE. Outputs go to `data/processed/` (set `E2G_DATA_DIR` to put data elsewhere).
-2. **Graph + walks**: Part 2 of `main.ipynb` (CPU; walks are cached per parameter setting).
-3. **Embeddings + Mamba/GNN training** (GPU): Part 3 of `main.ipynb`, or headless on Chimera:
+Run `main.ipynb` from the repository root with the `e2g` kernel.
+Raw filenames, download URLs, and the `raw/` and `processed/` folder names are shared through `data_sources.py`. Change them there if the data layout changes. `download_data.py` reads that configuration directly.
+
+1. **Data** (local, ~10 GB raw): run `python download_data.py`, then run Part 1 of `main.ipynb`. Hi-C is streamed from ENCODE. Processed tables go to `data/processed/` (set `E2G_DATA_DIR` to put data elsewhere).
+2. **Graph + walks** (CPU): run Part 2 of `main.ipynb`. Walks are cached per parameter setting.
+3. **Embeddings + Mamba/GNN training** (GPU): run Part 3 of `main.ipynb`. On Chimera, sync the repository including `data/processed/`, then submit the notebook job:
    ```bash
    rsync -avP --exclude 'data/raw' --exclude '.DS_Store' ./ kevin@chimera-login:/scratch/zhoulab/kevin/enhancer_gene_prediction/
    cd /scratch/zhoulab/kevin/enhancer_gene_prediction && sbatch chimera.sbatch
    ```
-   The job skips Part 1 (cells tagged `data`) and writes the executed notebook to `main_run_<jobid>.ipynb` and metrics to `data/processed/results.csv`.
+   The job skips notebook cells tagged `data`, writes the executed notebook to `main_run_<jobid>.ipynb`, and writes metrics to `data/processed/results.csv`.
