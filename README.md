@@ -18,7 +18,7 @@ python -c 'import torch; from mamba_ssm import Mamba; print(torch.__version__, t
 
 The minimal CPU environment was tested on macOS with Python 3.12. The compiled-kernel pins come from the original A100 environment (Python 3.10, Torch 2.7.0, Mamba 2.2.6.post3, causal-conv1d 1.7.0). A fresh GPU installation of this refactor has **not** been verified. The original server used PyG 2.8.1 and PyArrow 25.0.1; the minimal environment uses PyG 2.8.0 and PyArrow 20.0.0. Model parity checks passed in that environment; bitwise retraining reproducibility across environments/devices is not promised.
 
-`environment.yml` is the broader, legacy **data preparation** environment, not a training lockfile. For rebuilding data, use `download_data.sh`, then the preparation, graph/walk, and embedding sections of `main.ipynb`. The notebook's training/evaluation cells now call the same Python modules as the CLI. The notebook is no longer parsed or patched by experiment scripts.
+`environment.yml` is the broader **data preparation** environment, not a training lockfile. For rebuilding data, run `python download_data.py`, then the preparation, graph/walk, and embedding sections of `main.ipynb`. The downloader and notebook share raw filenames, URLs, and data directories through `data_sources.py`. The notebook's training/evaluation cells call the same Python modules as the CLI. The notebook is no longer parsed or patched by experiment scripts.
 
 ## Cached inputs
 
@@ -41,7 +41,7 @@ python train.py --model gnn --distance --run-dir runs/gnn-distance
 python train.py --model combined --run-dir runs/combined-distance
 ```
 
-Omit `--distance` for the original Mamba or GNN baseline. Combined always includes distance. Defaults preserve the experiments: width 128, two layers, 30 epochs, batch 128, AdamW with learning rate 0.001 and weight decay 0.01, five chromosome-held-out folds, seed 0. Training cycles through cached walk resamples and evaluation averages logits over the first four. Distance is `log1p(abs(distanceToTSS)/1000)`.
+Omit `--distance` for the original Mamba or GNN baseline. Combined always includes distance. CLI defaults preserve the experiments: width 128, two layers, 30 epochs, batch 128, AdamW with learning rate 0.001 and weight decay 0.01, five chromosome-held-out folds, seed 0. The notebook uses batch 64, which was tested on an A100. Training cycles through cached walk resamples and evaluation averages logits over the first four. Distance is `log1p(abs(distanceToTSS)/1000)`.
 
 To resume, repeat the **same command and arguments** with `--resume`. The manifest checks settings, SHA-256 input/code hashes, chromosome assignments, Python and core package versions. Completed folds contain weights, row IDs and predictions, with a checksum recorded only after the checkpoint is written. Interrupted folds restart from their beginning. Changed settings/data/code require a new run directory; old experiment checkpoints are not silently imported as resumable runs. Do not edit input files while a run is active.
 

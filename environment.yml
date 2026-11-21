@@ -37,7 +37,7 @@ dependencies:
   # genomics I/O
   - pysam>=0.22          # BAM read counting (ATAC activity)
   - pyfaidx>=0.8         # indexed access to the GRCh38 FASTA
-  - samtools>=1.19       # BAM indexing in download_data.sh
+  - samtools>=1.19       # BAM indexing in download_data.py
   - pip:
       - torch_geometric>=2.5
       - pyranges>=0.1,<0.2      # interval joins on DataFrames
