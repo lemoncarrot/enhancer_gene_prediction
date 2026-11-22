@@ -183,17 +183,21 @@ class WalkEncoder(nn.Module):
 
 class PairModel(nn.Module):
     """One walk encoder, optionally augmented by log pair distance."""
-    def __init__(self, data, kind, d=128, n_layers=2, distance=False, backend="cuda"):
+    def __init__(self, data, kind, d=128, n_layers=2, distance=False, backend="cuda", pair_product=True):
         super().__init__()
         self.use_distance = distance
+        self.use_pair_product = pair_product
         self.enc = WalkEncoder(data, kind, d, n_layers, backend)
-        self.mlp = nn.Sequential(nn.Linear(3 * d + int(distance), d), nn.GELU(), nn.Dropout(0.1), nn.Linear(d, 1))
+        self.mlp = nn.Sequential(nn.Linear((2 + int(pair_product)) * d + int(distance), d),
+                                 nn.GELU(), nn.Dropout(0.1), nn.Linear(d, 1))
 
     def forward(self, W, E, pe, pg, pair_distance=None):
         anchors, inv = torch.unique(torch.cat([pe, pg]), return_inverse=True)
         z = self.enc(W[anchors], E[anchors])
         ze, zg = z[inv[:len(pe)]], z[inv[len(pe):]]
-        features = [ze, zg, ze * zg]
+        features = [ze, zg]
+        if self.use_pair_product:
+            features.append(ze * zg)
         if self.use_distance:
             features.append(pair_distance.unsqueeze(-1))
         return self.mlp(torch.cat(features, -1)).squeeze(-1)
@@ -201,11 +205,13 @@ class PairModel(nn.Module):
 
 class CombinedPairModel(nn.Module):
     """Jointly trained Mamba and GNN encoders, with pair distance."""
-    def __init__(self, data, d=128, n_layers=2, backend="cuda"):
+    def __init__(self, data, d=128, n_layers=2, backend="cuda", pair_product=True):
         super().__init__()
+        self.use_pair_product = pair_product
         self.mamba = WalkEncoder(data, "mamba", d, n_layers, backend)
         self.gnn = WalkEncoder(data, "gnn", d, n_layers, backend)
-        self.mlp = nn.Sequential(nn.Linear(6 * d + 1, d), nn.GELU(), nn.Dropout(0.1), nn.Linear(d, 1))
+        self.mlp = nn.Sequential(nn.Linear((4 + 2 * int(pair_product)) * d + 1, d),
+                                 nn.GELU(), nn.Dropout(0.1), nn.Linear(d, 1))
 
     def forward(self, W, E, pe, pg, pair_distance):
         anchors, inv = torch.unique(torch.cat([pe, pg]), return_inverse=True)
@@ -213,4 +219,11 @@ class CombinedPairModel(nn.Module):
         zm, zg = self.mamba(wm, em), self.gnn(wm, em)
         me, mg = zm[inv[:len(pe)]], zm[inv[len(pe):]]
         ge, gg = zg[inv[:len(pe)]], zg[inv[len(pe):]]
-        return self.mlp(torch.cat([me, mg, me * mg, ge, gg, ge * gg, pair_distance.unsqueeze(-1)], -1)).squeeze(-1)
+        features = [me, mg]
+        if self.use_pair_product:
+            features.append(me * mg)
+        features.extend([ge, gg])
+        if self.use_pair_product:
+            features.append(ge * gg)
+        features.append(pair_distance.unsqueeze(-1))
+        return self.mlp(torch.cat(features, -1)).squeeze(-1)

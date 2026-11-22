@@ -62,9 +62,10 @@ def run_lock(path):
 def fit_predict(data, cfg, train, test):
     torch.manual_seed(cfg["seed"])
     if cfg["model"] == "combined":
-        model = CombinedPairModel(data, cfg["d"], cfg["layers"], cfg["backend"])
+        model = CombinedPairModel(data, cfg["d"], cfg["layers"], cfg["backend"], cfg["pair_product"])
     else:
-        model = PairModel(data, cfg["model"], cfg["d"], cfg["layers"], cfg["distance"], cfg["backend"])
+        model = PairModel(data, cfg["model"], cfg["d"], cfg["layers"], cfg["distance"],
+                          cfg["backend"], cfg["pair_product"])
     model.to(data.X.device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["wd"])
     positives = data.labels[train].sum()
@@ -103,6 +104,7 @@ def parse_args():
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--model", choices=["mamba", "gnn", "combined"], required=True)
     parser.add_argument("--distance", action="store_true", help="Add pair distance (always enabled for combined)")
+    parser.add_argument("--no-pair-product", action="store_true", help="Omit elementwise enhancer-promoter product from prediction head")
     parser.add_argument("--backend", choices=["cuda", "torch"], default="cuda", help="Mamba backend; torch is a separate CPU/debug implementation")
     parser.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
     for name, default in [("d", 128), ("layers", 2), ("epochs", 30), ("batch", 128), ("folds", 5), ("seed", 0), ("threads", 8)]:
@@ -123,8 +125,9 @@ def parse_args():
 def main():
     args = parse_args()
     torch.set_num_threads(args.threads)
-    cfg = {k: v for k, v in vars(args).items() if k not in ["data_dir", "walks", "run_dir", "resume"]}
+    cfg = {k: v for k, v in vars(args).items() if k not in ["data_dir", "walks", "run_dir", "resume", "no_pair_product"]}
     cfg["distance"] = args.distance or args.model == "combined"
+    cfg["pair_product"] = not args.no_pair_product
     cfg["backend"] = "none" if args.model == "gnn" else args.backend
     packages = ["torch", "torch-geometric", "numpy", "pandas", "pyarrow"]
     if cfg["backend"] == "cuda":
