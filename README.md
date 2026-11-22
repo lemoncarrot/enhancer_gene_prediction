@@ -16,7 +16,7 @@ python -m pip install -r requirements-cuda.txt --no-build-isolation
 python -c 'import torch; from mamba_ssm import Mamba; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())'
 ```
 
-The minimal CPU environment was tested on macOS with Python 3.12. The compiled-kernel pins come from the original A100 environment (Python 3.10, Torch 2.7.0, Mamba 2.2.6.post3, causal-conv1d 1.7.0). A fresh GPU installation of this refactor has **not** been verified. The original server used PyG 2.8.1 and PyArrow 25.0.1; the minimal environment uses PyG 2.8.0 and PyArrow 20.0.0. Model parity checks passed in that environment; bitwise retraining reproducibility across environments/devices is not promised.
+The minimal CPU environment was tested on macOS with Python 3.12. A fresh A100 run of the refactor completed with Python 3.10, Torch 2.7.0, Mamba 2.2.6.post3, causal-conv1d 1.6.2.post1, PyG 2.8.0, and PyArrow 20.0.0; see [results](RESULTS.md). The original server used PyG 2.8.1 and PyArrow 25.0.1. Model parity checks passed in the minimal environment; bitwise retraining reproducibility across environments/devices is not promised.
 
 `environment.yml` is the broader **data preparation** environment, not a training lockfile. For rebuilding data, run `python download_data.py`, then the preparation, graph/walk, and embedding sections of `main.ipynb`. The downloader and notebook share raw filenames, URLs, and data directories through `data_sources.py`. The notebook's training/evaluation cells call the same Python modules as the CLI. The notebook is no longer parsed or patched by experiment scripts.
 
@@ -41,7 +41,7 @@ python train.py --model gnn --distance --run-dir runs/gnn-distance
 python train.py --model combined --run-dir runs/combined-distance
 ```
 
-Omit `--distance` for the original Mamba or GNN baseline. Combined always includes distance. CLI defaults preserve the experiments: width 128, two layers, 30 epochs, batch 128, AdamW with learning rate 0.001 and weight decay 0.01, five chromosome-held-out folds, seed 0. The notebook uses batch 64, which was tested on an A100. Training cycles through cached walk resamples and evaluation averages logits over the first four. Distance is `log1p(abs(distanceToTSS)/1000)`.
+Omit `--distance` for the original Mamba or GNN baseline. Combined always includes distance. Add `--no-pair-product` to omit the elementwise enhancer–promoter embedding product from the prediction head. CLI defaults preserve the experiments: width 128, two layers, 30 epochs, batch 128, AdamW with learning rate 0.001 and weight decay 0.01, five chromosome-held-out folds, seed 0. The notebook uses batch 64, which was tested on an A100. Training cycles through cached walk resamples and evaluation averages logits over the first four. Distance is `log1p(abs(distanceToTSS)/1000)`.
 
 To resume, repeat the **same command and arguments** with `--resume`. The manifest checks settings, SHA-256 input/code hashes, chromosome assignments, Python and core package versions. Completed folds contain weights, row IDs and predictions, with a checksum recorded only after the checkpoint is written. Interrupted folds restart from their beginning. Changed settings/data/code require a new run directory; old experiment checkpoints are not silently imported as resumable runs. Do not edit input files while a run is active.
 
@@ -72,6 +72,8 @@ Outputs are pooled/per-dataset metrics for all pairs and covered pairs, fold met
 
 Original all-pair pooled AUPRC: distance **0.437696**, Mamba **0.261687**, GNN **0.262723**, Mamba+distance **0.493734**, GNN+distance **0.479541**, jointly trained combined+distance **0.468754**, probability ensemble **0.512476**. The new evaluator reproduces these from the saved predictions. They are one-seed results, not evidence that the architecture or hyperparameters are optimal.
 
+The later matched A100 distance and pair-product ablations are recorded in [RESULTS.md](RESULTS.md), with exact metric CSVs under `results/`.
+
 ## Verification and scope
 
 ```bash
@@ -80,6 +82,6 @@ python -m unittest discover -s tests -v
 
 Tests exercise all three model families on tiny CPU fixtures, fold resume/restart, changed-data/config/code refusal, checkpoint corruption, walk-edge identity, and prediction alignment. Additional one-off checks compared all five model variants' logits and gradients against the frozen original implementation, and loaded actual baseline/distance GNN checkpoints to compare CPU inference against saved GPU predictions.
 
-This is a behavior-preserving training refactor. The historical GNN's deduplication includes directed CSR edge IDs, so opposite traversals can retain duplicate edges. That behavior and the existing center-cropped sequence embeddings are deliberately preserved; changing them is a separate scientific experiment. GPU Mamba parity and a full new A100 training run remain untested.
+This is a behavior-preserving training refactor. The historical GNN's deduplication includes directed CSR edge IDs, so opposite traversals can retain duplicate edges. That behavior and the existing center-cropped sequence embeddings are deliberately preserved; changing them is a separate scientific experiment. A fresh A100 training run is documented in [RESULTS.md](RESULTS.md); direct logit parity with the historical CUDA environment remains untested.
 
 `models.py` owns data loading and architectures, `train.py` owns training/resume, and `evaluate.py` owns metrics and ensembling. Historical one-off launch, transfer and notebook-patching scripts remain only in the archived server snapshot; they are not part of the active workflow. Large data, checkpoints and runs remain ignored by Git.
