@@ -72,7 +72,7 @@ Outputs are pooled/per-dataset metrics for all pairs and covered pairs, fold met
 
 Original all-pair pooled AUPRC: distance **0.437696**, Mamba **0.261687**, GNN **0.262723**, Mamba+distance **0.493734**, GNN+distance **0.479541**, jointly trained combined+distance **0.468754**, probability ensemble **0.512476**. The new evaluator reproduces these from the saved predictions. They are one-seed results, not evidence that the architecture or hyperparameters are optimal.
 
-The later matched A100 distance and pair-product ablations are recorded in [RESULTS.md](RESULTS.md), with exact metric CSVs under `results/`.
+The later A100 distance, pair-product, and walk ablations are recorded in [RESULTS.md](RESULTS.md), with exact metric CSVs under `results/`.
 
 ## Verification and scope
 

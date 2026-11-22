@@ -41,3 +41,28 @@ python evaluate.py runs/no_pair_product/{gnn,gnn_distance,mamba,mamba_distance}/
 ```
 
 The matching with-product run uses the same commands without `--no-pair-product` and with different run directories. See the [training instructions](README.md#train-and-resume) for setup and resume rules.
+
+## Walk length and count ablation (November 21, 2026)
+
+This follow-up keeps explicit pair distance and the default elementwise pair product. It compares Mamba and GNN at 16, 32, and 64 steps with eight walks per anchor, plus four versus eight walks at 64 steps. The 64-step, eight-walk reference comes from the earlier A100 run at `e23d1d7`; the six new runs used `f009632`, whose optional pair-product flag leaves the default head unchanged. All used the same data hashes, five chromosome folds, seed 0, width 128, two layers, 30 epochs, batch size 64, and optimizer settings.
+
+The shorter caches are exact prefixes of the original `walks_L64_p4.0_q1.0_b5.0_N8_R10.npz`: 16 or 32 initial steps of each walk, or the first four of eight complete walks. This preserves the same sampled paths up to the cutoff. [derive_walk_ablation.py](derive_walk_ablation.py) creates the three caches from the original one. The graph and pair labels do not change.
+
+### All-pair pooled results
+
+Each row evaluates the same 10,356 benchmark pairs (471 positives). Fold time sums training and prediction time over the five held-out folds; it excludes cache creation and environment setup.
+
+| Model | Steps | Walks | AUPRC | Precision at 70% recall | Fold time (s) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GNN + distance | 16 | 8 | 0.510 | 0.295 | 85 |
+| GNN + distance | 32 | 8 | 0.475 | 0.258 | 91 |
+| GNN + distance | 64 | 8 | **0.516** | 0.278 | 126 |
+| GNN + distance | 64 | 4 | 0.477 | 0.293 | 94 |
+| Mamba + distance | 16 | 8 | 0.490 | 0.319 | 602 |
+| Mamba + distance | 32 | 8 | 0.513 | 0.340 | 673 |
+| Mamba + distance | 64 | 8 | 0.523 | **0.359** | 825 |
+| Mamba + distance | 64 | 4 | **0.525** | 0.348 | 417 |
+
+In this run, Mamba AUPRC increased with walk length. Four walks instead of eight at 64 steps gave nearly identical Mamba AUPRC in about half the fold time, but slightly lower precision at 70% recall. GNN's length result was non-monotonic, and its four-walk AUPRC fell by 0.039. The pooled patterns vary across datasets; see [the full walk ablation CSV](results/walk_ablation.csv) for per-dataset and graph-covered results, input-cache hashes, and unrounded fold times.
+
+These are exploratory, single-seed results. In particular, the 0.002 AUPRC difference between four and eight Mamba walks is too small to treat as a reliable improvement. Replicating the four-versus-eight comparison across seeds is the next test before changing the default walk count.
