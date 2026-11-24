@@ -22,7 +22,9 @@ def fixture(path):
                       log_atac=np.arange(8) / 8,
                       seq_emb=[np.array([i / 8, 1.0]) for i in range(8)])).to_parquet(path / "nodes.parquet")
     pd.DataFrame(dict(u=[0, 2, 4, 6], v=[1, 3, 5, 7], type=[0, 1, 0, 1], oe=[np.nan, 4., np.nan, 5.])).to_parquet(path / "edges.parquet")
-    pd.DataFrame(dict(chrom=np.repeat(["chr1", "chr2", "chr3", "chr4"], 2),
+    (path / "hic").mkdir()
+    pd.DataFrame(dict(chrom=["chr1", "chr2"], bin1=[0, 0], bin2=[0, 0], observed=[3., 7.], oe=[1., 1.])).to_parquet(path / "hic" / "all.parquet")
+    pd.DataFrame(dict(chrom=np.repeat(["chr1", "chr2", "chr3", "chr4"], 2), center=[50, 60] * 4, tss=[150, 260] * 4,
                       elem_node=np.repeat([0, 2, 4, 6], 2), gene_node=np.repeat([1, 3, 5, 7], 2),
                       label=[0, 1] * 4, distanceToTSS=[100, 200] * 4, Dataset=["synthetic"] * 8)).to_parquet(path / "crispr.parquet")
     W = np.array([[[[i, i ^ 1, i]] for i in range(8)]], dtype=np.int32)
@@ -53,7 +55,7 @@ class PipelineTests(unittest.TestCase):
         return result
 
     def test_all_models_resume_and_evaluate(self):
-        for kind in ["gnn", "mamba", "combined"]:
+        for kind in ["gnn", "mamba", "attention", "combined"]:
             with self.subTest(kind=kind):
                 self.train(kind, ["--distance"])
                 run = self.root / kind
@@ -65,10 +67,26 @@ class PipelineTests(unittest.TestCase):
                 (run / "fold1.json").unlink()
                 self.train(kind, ["--distance", "--resume"])
                 self.assertEqual(before, (run / "fold0.pt").read_bytes())
-        paths = [self.root / kind / "predictions.parquet" for kind in ["gnn", "mamba", "combined"]]
+        paths = [self.root / kind / "predictions.parquet" for kind in ["gnn", "mamba", "attention", "combined"]]
         result = evaluate(paths, self.root / "evaluation", ["mamba_distance", "gnn_distance"])
-        self.assertEqual(set(result.model), {"distance", "mamba_distance", "gnn_distance", "combined_distance", "ensemble"})
+        self.assertEqual(set(result.model), {"distance", "mamba_distance", "gnn_distance", "attention_distance", "combined_distance", "ensemble"})
         self.assertTrue(np.isfinite(result.AUPRC).all())
+
+    def test_pair_features_and_pairwise_control(self):
+        import shutil
+        for kind in ["pairwise", "mamba"]:
+            self.train(kind, ["--distance", "--pair-features"])
+        paths = [self.root / kind / "predictions.parquet" for kind in ["pairwise", "mamba"]]
+        result = evaluate(paths, self.root / "evaluation")
+        self.assertEqual(set(result.model), {"distance", "pairwise_distance_pairfeat", "mamba_distance_pairfeat"})
+        data = GraphData.load(self.data, pair_features=True)
+        self.assertEqual(tuple(data.pair_features.shape), (8, 3))
+        np.testing.assert_allclose(data.pair_features[:4, 0], np.log1p([3., 3., 7., 7.]))   # chr3/chr4 have no record -> 0
+        self.assertEqual(float(data.pair_features[4:, 0].abs().sum()), 0.0)
+        self.assertIn("no encoder", self.train("pairwise", success=False).stderr)
+        shutil.rmtree(self.data / "hic")
+        shutil.rmtree(self.root / "mamba")
+        self.assertIn("cached Hi-C contacts", self.train("mamba", ["--pair-features"], success=False).stderr)
 
     def test_resume_refuses_changed_config_data_code_and_corruption(self):
         self.train()

@@ -41,13 +41,21 @@ python train.py --model gnn --distance --run-dir runs/gnn-distance
 python train.py --model combined --run-dir runs/combined-distance
 ```
 
+**Dense-attention control.** `--model attention` swaps the two bidirectional Mamba blocks for two pre-norm self-attention blocks (4 heads, feed-forward width 4×, no dropout) and adds a learned step-position embedding, since attention has no built-in notion of walk order. Tokens, anchor readout, walk averaging, pair head and training are identical to Mamba, and one block has 198k parameters against 233k for a bidirectional Mamba block at width 128. It needs no CUDA extras. To match the A100 runs in [RESULTS.md](RESULTS.md):
+
+```bash
+python train.py --model attention --distance --batch 64 --run-dir runs/attention-distance
+python train.py --model attention --batch 64 --run-dir runs/attention
+python evaluate.py runs/attention-distance/predictions.parquet runs/attention/predictions.parquet --output-dir runs/attention-evaluation
+```
+
 Omit `--distance` for the original Mamba or GNN baseline. Combined always includes distance. Add `--no-pair-product` to omit the elementwise enhancer–promoter embedding product from the prediction head. CLI defaults preserve the experiments: width 128, two layers, 30 epochs, batch 128, AdamW with learning rate 0.001 and weight decay 0.01, five chromosome-held-out folds, seed 0. The notebook uses batch 64, which was tested on an A100. Training cycles through cached walk resamples and evaluation averages logits over the first four. Distance is `log1p(abs(distanceToTSS)/1000)`.
 
 To resume, repeat the **same command and arguments** with `--resume`. The manifest checks settings, SHA-256 input/code hashes, chromosome assignments, Python and core package versions. Completed folds contain weights, row IDs and predictions, with a checksum recorded only after the checkpoint is written. Interrupted folds restart from their beginning. Changed settings/data/code require a new run directory; old experiment checkpoints are not silently imported as resumable runs. Do not edit input files while a run is active.
 
 Outputs are `manifest.json`, `foldN.pt`, `foldN.json`, and `predictions.parquet`. The last file contains full benchmark metadata and out-of-fold logits; uncovered pairs retain the historical score of -1e9. There is no validation-set tuning or early stopping. Different models can run in separate directories; a lock prevents two writers using the same directory.
 
-For a small CPU/debug run, add `--device cpu --backend torch --d 8 --layers 1 --epochs 1`. The plain-PyTorch Mamba backend is a separate implementation with different checkpoint keys and initialization; it does **not** replace the CUDA backend for reproducing the A100 experiments. GNN ignores the backend option.
+For a small CPU/debug run, add `--device cpu --backend torch --d 8 --layers 1 --epochs 1`. The plain-PyTorch Mamba backend is a separate implementation with different checkpoint keys and initialization; it does **not** replace the CUDA backend for reproducing the A100 experiments. GNN and attention ignore the backend option.
 
 On Chimera, activate the environment first, then submit from the repo root:
 
@@ -74,13 +82,17 @@ Original all-pair pooled AUPRC: distance **0.437696**, Mamba **0.261687**, GNN *
 
 The later A100 distance, pair-product, and walk ablations are recorded in [RESULTS.md](RESULTS.md), with exact metric CSVs under `results/`.
 
+[EXPERIMENTS.md](EXPERIMENTS.md) tracks every experiment, including the ones not yet run and the commands to run them.
+
+**Pairwise features.** `--pair-features` appends log raw Hi-C contact and ATAC at both ends to the prediction head; it needs the Hi-C contact cache in `<data-dir>/hic`. `--model pairwise` trains the same head with no encoder as a matched control. `python baselines.py` and `python pairwise_control.py` compute the non-learned and CPU-only pairwise baselines.
+
 ## Verification and scope
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Tests exercise all three model families on tiny CPU fixtures, fold resume/restart, changed-data/config/code refusal, checkpoint corruption, walk-edge identity, and prediction alignment. Additional one-off checks compared all five model variants' logits and gradients against the frozen original implementation, and loaded actual baseline/distance GNN checkpoints to compare CPU inference against saved GPU predictions.
+Tests exercise all model families and the pair-feature option on tiny CPU fixtures, fold resume/restart, changed-data/config/code refusal, checkpoint corruption, walk-edge identity, and prediction alignment. Additional one-off checks compared all five model variants' logits and gradients against the frozen original implementation, and loaded actual baseline/distance GNN checkpoints to compare CPU inference against saved GPU predictions.
 
 This is a behavior-preserving training refactor. The historical GNN's deduplication includes directed CSR edge IDs, so opposite traversals can retain duplicate edges. That behavior and the existing center-cropped sequence embeddings are deliberately preserved; changing them is a separate scientific experiment. A fresh A100 training run is documented in [RESULTS.md](RESULTS.md); direct logit parity with the historical CUDA environment remains untested.
 

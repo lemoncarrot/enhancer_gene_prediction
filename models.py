@@ -1,4 +1,4 @@
-"""Cached graph data and the historical Mamba/GNN architectures.
+"""Cached graph data, the historical Mamba/GNN architectures, and a dense-attention control.
 
 Data tensors live on the requested device before model construction; they are not
 checkpoint parameters. The manifest identifies their exact source files.
@@ -27,6 +27,20 @@ def chromosome_folds(benchmark, count):
     return fold_of
 
 
+def pair_feature_matrix(directory, pairs, nodes, resolution=5_000):
+    """Pairwise scalars for the prediction head: log raw Hi-C contact between the element's and the TSS's bins
+    (SCALE-normalized observed, 0 if no record), and log ATAC at the element and promoter nodes."""
+    if not (directory / "hic").is_dir():
+        raise ValueError("--pair-features needs the cached Hi-C contacts in <data-dir>/hic")
+    if not {"center", "tss"}.issubset(pairs.columns):
+        raise ValueError("--pair-features needs element center and gene tss columns in crispr.parquet")
+    contacts = pd.read_parquet(directory / "hic").set_index(["chrom", "bin1", "bin2"]).observed
+    a, b = pairs.center // resolution * resolution, pairs.tss // resolution * resolution
+    contact = contacts.reindex(pd.MultiIndex.from_arrays([pairs.chrom, np.minimum(a, b), np.maximum(a, b)])).fillna(0).to_numpy()
+    atac = nodes.log_atac.to_numpy()
+    return np.column_stack([np.log1p(contact), atac[pairs.elem_node], atac[pairs.gene_node]])
+
+
 @dataclass
 class GraphData:
     benchmark: pd.DataFrame
@@ -41,9 +55,10 @@ class GraphData:
     pg: torch.Tensor
     distance: torch.Tensor
     labels: torch.Tensor
+    pair_features: torch.Tensor   # (pairs, 0) unless requested
 
     @classmethod
-    def load(cls, directory, walks=DEFAULT_WALKS, device="cpu"):
+    def load(cls, directory, walks=DEFAULT_WALKS, device="cpu", pair_features=False):
         directory = Path(directory)
         nodes = pd.read_parquet(directory / "nodes.parquet")
         edges = pd.read_parquet(directory / "edges.parquet")
@@ -82,15 +97,17 @@ class GraphData:
             return torch.as_tensor(a, dtype=dtype, device=device)
         X = np.hstack([nodes[["log_atac"]].values, np.stack(nodes.seq_emb.values)])
         distance = np.log1p(pairs.distanceToTSS.abs().to_numpy() / 1000)
-        if not np.isfinite(X).all() or not np.isfinite(distance).all():
-            raise ValueError("Nonfinite node features or pair distances")
+        extra = pair_feature_matrix(directory, pairs, nodes) if pair_features else np.zeros((len(pairs), 0))
+        if not np.isfinite(X).all() or not np.isfinite(distance).all() or not np.isfinite(extra).all():
+            raise ValueError("Nonfinite node features, pair distances or pair features")
         return cls(benchmark, pairs, tensor(X, torch.float32), tensor(nodes.center.values),
                    tensor(np.r_[edges.type, edges.type][order], torch.long),
                    tensor(np.nan_to_num(np.log(np.r_[edges.oe, edges.oe][order])), torch.float32),
                    tensor(W, torch.long), tensor(E, torch.long),
                    tensor(np.searchsorted(anchors, pairs.elem_node), torch.long),
                    tensor(np.searchsorted(anchors, pairs.gene_node), torch.long),
-                   tensor(distance, torch.float32), tensor(pairs.label.values, torch.float32))
+                   tensor(distance, torch.float32), tensor(pairs.label.values, torch.float32),
+                   tensor(extra, torch.float32))
 
 class TorchMamba(nn.Module):
     # Selective SSM block (Gu & Dao 2023, Alg. 2) in plain PyTorch, same interface as mamba_ssm.Mamba.
@@ -129,6 +146,16 @@ class BiMamba(nn.Module):   # pre-norm residual; the reversed pass lets position
     def forward(self, x):
         h = self.norm(x); return x + self.fwd(h) + self.bwd(h.flip(1)).flip(1)
 
+class AttentionBlock(nn.Module):
+    # Dense-attention control for BiMamba: pre-norm self-attention + MLP, every token attends to every token.
+    # No dropout, matching the Mamba blocks. At d=128 one block has ~0.2M parameters, close to one BiMamba block.
+    def __init__(self, d, n_heads=4):
+        super().__init__()
+        self.layer = nn.TransformerEncoderLayer(d, n_heads if d % n_heads == 0 else 1, 4 * d, dropout=0.0,
+                                                activation="gelu", batch_first=True, norm_first=True)
+    def forward(self, x):
+        return self.layer(x)
+
 class Fourier(nn.Module):   # sinusoidal encoding of a scalar -> d (rho, rho')
     def __init__(self, d, n_freq=16, max_period=100.0):
         super().__init__()
@@ -143,12 +170,17 @@ class WalkEncoder(nn.Module):
         super().__init__()
         self.kind = kind
         self.data = data
-        if kind not in ("mamba", "gnn"):
+        if kind not in ("mamba", "gnn", "attention"):
             raise ValueError(kind)
         self.node = nn.Sequential(nn.LayerNorm(data.X.shape[1]), nn.Linear(data.X.shape[1], d))
         self.etype, self.rho, self.rho_oe = nn.Embedding(3, d), Fourier(d), Fourier(d)   # edge types: 0 chain, 1 Hi-C, 2 anchor
         if kind == "mamba":
             self.layers = nn.ModuleList(BiMamba(d, backend) for _ in range(n_layers))
+        elif kind == "attention":
+            # Attention is permutation-invariant, so walk order needs an explicit learned step embedding
+            # (Mamba gets order from its recurrence). Created only here so mamba/gnn initialization is unchanged.
+            self.pos = nn.Embedding(data.walks.shape[-1], d)
+            self.layers = nn.ModuleList(AttentionBlock(d) for _ in range(n_layers))
         else:
             self.layers = nn.ModuleList(GINEConv(nn.Sequential(nn.Linear(d, d), nn.GELU(), nn.Linear(d, d))) for _ in range(n_layers))
             self.norms = nn.ModuleList(nn.LayerNorm(d) for _ in range(n_layers))
@@ -161,9 +193,11 @@ class WalkEncoder(nn.Module):
         X, CENTER = self.data.X, self.data.CENTER
         ETYPE, LOGOE = self.data.ETYPE, self.data.LOGOE
         U, N, L1 = W.shape
-        if self.kind == "mamba":
+        if self.kind in ("mamba", "attention"):
             pad = lambda x, v: torch.cat([torch.full_like(x[..., :1], v), x], -1)   # step 0 = anchor token
             tok = self.node(X[W]) + self.edge_emb(pad(ETYPE[E], 2), pad(slog(CENTER[W[..., 1:]] - CENTER[W[..., :-1]]), 0), pad(LOGOE[E], 0))
+            if self.kind == "attention":
+                tok = tok + self.pos.weight[:L1]
             h = tok.view(U * N, L1, -1)
             for layer in self.layers: h = layer(h)
             return self.out(h[:, 0]).view(U, N, -1).mean(1)
@@ -182,24 +216,36 @@ class WalkEncoder(nn.Module):
 
 
 class PairModel(nn.Module):
-    """One walk encoder, optionally augmented by log pair distance."""
+    """One walk encoder, optionally augmented by log pair distance and other pairwise scalars.
+
+    kind "pairwise" has no encoder: the same head sees only the pairwise scalars (matched control)."""
     def __init__(self, data, kind, d=128, n_layers=2, distance=False, backend="cuda", pair_product=True):
         super().__init__()
         self.use_distance = distance
         self.use_pair_product = pair_product
-        self.enc = WalkEncoder(data, kind, d, n_layers, backend)
-        self.mlp = nn.Sequential(nn.Linear((2 + int(pair_product)) * d + int(distance), d),
+        scalars = int(distance) + data.pair_features.shape[1]
+        if kind == "pairwise":
+            if not scalars:
+                raise ValueError("pairwise needs distance and/or pair features")
+            self.enc, width = None, 0
+        else:
+            self.enc, width = WalkEncoder(data, kind, d, n_layers, backend), (2 + int(pair_product)) * d
+        self.mlp = nn.Sequential(nn.Linear(width + scalars, d),
                                  nn.GELU(), nn.Dropout(0.1), nn.Linear(d, 1))
 
-    def forward(self, W, E, pe, pg, pair_distance=None):
-        anchors, inv = torch.unique(torch.cat([pe, pg]), return_inverse=True)
-        z = self.enc(W[anchors], E[anchors])
-        ze, zg = z[inv[:len(pe)]], z[inv[len(pe):]]
-        features = [ze, zg]
-        if self.use_pair_product:
-            features.append(ze * zg)
+    def forward(self, W, E, pe, pg, pair_distance=None, pair_features=None):
+        features = []
+        if self.enc is not None:
+            anchors, inv = torch.unique(torch.cat([pe, pg]), return_inverse=True)
+            z = self.enc(W[anchors], E[anchors])
+            ze, zg = z[inv[:len(pe)]], z[inv[len(pe):]]
+            features += [ze, zg]
+            if self.use_pair_product:
+                features.append(ze * zg)
         if self.use_distance:
             features.append(pair_distance.unsqueeze(-1))
+        if pair_features is not None and pair_features.shape[1]:
+            features.append(pair_features)
         return self.mlp(torch.cat(features, -1)).squeeze(-1)
 
 

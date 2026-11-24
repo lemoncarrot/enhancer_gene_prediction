@@ -74,7 +74,8 @@ def fit_predict(data, cfg, train, test):
     pos_weight = (1 - data.labels[train]).sum() / positives
 
     def forward(r, i):
-        return model(data.walks[r], data.eidx[r], data.pe[i], data.pg[i], data.distance[i])
+        inputs = (data.walks[r], data.eidx[r], data.pe[i], data.pg[i], data.distance[i])
+        return model(*inputs) if cfg["model"] == "combined" else model(*inputs, data.pair_features[i])
 
     for epoch in range(cfg["epochs"]):
         model.train()
@@ -102,8 +103,10 @@ def parse_args():
     parser.add_argument("--data-dir", type=Path, default=Path("data/processed"))
     parser.add_argument("--walks", default=DEFAULT_WALKS, help="Cache filename relative to data-dir")
     parser.add_argument("--run-dir", type=Path, required=True)
-    parser.add_argument("--model", choices=["mamba", "gnn", "combined"], required=True)
+    parser.add_argument("--model", choices=["mamba", "gnn", "attention", "combined", "pairwise"], required=True)
     parser.add_argument("--distance", action="store_true", help="Add pair distance (always enabled for combined)")
+    parser.add_argument("--pair-features", action="store_true",
+                        help="Also give the head log raw Hi-C contact and ATAC at both ends (needs <data-dir>/hic)")
     parser.add_argument("--no-pair-product", action="store_true", help="Omit elementwise enhancer-promoter product from prediction head")
     parser.add_argument("--backend", choices=["cuda", "torch"], default="cuda", help="Mamba backend; torch is a separate CPU/debug implementation")
     parser.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
@@ -115,8 +118,12 @@ def parse_args():
     args = parser.parse_args()
     if any(getattr(args, k) < 1 for k in ["d", "layers", "epochs", "batch", "threads"]) or args.lr <= 0 or args.wd < 0:
         parser.error("Sizes, epochs, threads and learning rate must be positive; wd must be nonnegative")
-    if args.model != "gnn" and args.backend == "cuda" and args.device != "cuda":
+    if args.model in ("mamba", "combined") and args.backend == "cuda" and args.device != "cuda":
         parser.error("The cuda Mamba backend requires --device cuda; use --backend torch for CPU smoke tests")
+    if args.model == "combined" and args.pair_features:
+        parser.error("--pair-features is not implemented for the combined model")
+    if args.model == "pairwise" and not (args.distance or args.pair_features):
+        parser.error("pairwise has no encoder; pass --distance and/or --pair-features")
     if args.device == "cuda" and not torch.cuda.is_available():
         parser.error("CUDA is unavailable; use a CUDA environment or --device cpu")
     return args
@@ -128,15 +135,20 @@ def main():
     cfg = {k: v for k, v in vars(args).items() if k not in ["data_dir", "walks", "run_dir", "resume", "no_pair_product"]}
     cfg["distance"] = args.distance or args.model == "combined"
     cfg["pair_product"] = not args.no_pair_product
-    cfg["backend"] = "none" if args.model == "gnn" else args.backend
+    cfg["backend"] = args.backend if args.model in ("mamba", "combined") else "none"
     packages = ["torch", "torch-geometric", "numpy", "pandas", "pyarrow"]
     if cfg["backend"] == "cuda":
         from mamba_ssm import Mamba  # fail early; never silently switch model implementations
         packages += ["mamba-ssm", "causal-conv1d"]
-    tag = args.model + ("_distance" if cfg["distance"] else "")
+    tag = args.model + ("_distance" if cfg["distance"] else "") + ("_pairfeat" if args.pair_features else "")
     with run_lock(args.run_dir):
         files = {name: sha256(args.data_dir / name) for name in ["nodes.parquet", "edges.parquet", "crispr.parquet", args.walks]}
-        data = GraphData.load(args.data_dir, args.walks, args.device)
+        if args.pair_features:
+            contacts = sorted((args.data_dir / "hic").glob("*.parquet"))
+            if not contacts:
+                raise ValueError("--pair-features needs the cached Hi-C contacts in <data-dir>/hic")
+            files.update({f"hic/{path.name}": sha256(path) for path in contacts})
+        data = GraphData.load(args.data_dir, args.walks, args.device, args.pair_features)
         fold_of = chromosome_folds(data.benchmark, cfg["folds"])
         data.pairs["fold"] = data.pairs.chrom.map(fold_of)
         for k in range(cfg["folds"]):

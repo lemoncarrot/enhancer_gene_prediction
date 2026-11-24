@@ -8,7 +8,9 @@ import pandas as pd
 from scipy.special import expit
 from sklearn.metrics import average_precision_score, precision_recall_curve
 
-MODELS = ["mamba", "gnn", "mamba_distance", "gnn_distance", "combined_distance"]
+MODELS = ["mamba", "gnn", "attention", "mamba_distance", "gnn_distance", "attention_distance", "combined_distance",
+          "pairwise_distance", *(f"{model}{suffix}" for model in ["mamba", "gnn", "attention", "pairwise"]
+                                 for suffix in ["_pairfeat", "_distance_pairfeat"])]
 
 
 def load_predictions(paths):
