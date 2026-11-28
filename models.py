@@ -41,6 +41,47 @@ def pair_feature_matrix(directory, pairs, nodes, resolution=5_000):
     return np.column_stack([np.log1p(contact), atac[pairs.elem_node], atac[pairs.gene_node]])
 
 
+RE2G_FEATURES = ["log_contact", "atac_elem", "atac_gene", "log_abc", "log_elements_between", "log_tss_between",
+                 "log_nearby_elements", "log_nearby_atac"]
+
+
+def re2g_feature_matrix(directory, pairs, nodes, nearby=10_000):
+    """rE2G-style hand-crafted context: the three pair features plus the ABC score, the number of candidate elements
+    and of promoter nodes strictly between element and TSS (endpoints excluded), and the count and summed ATAC of
+    other candidate elements within +-nearby bp of the element. Column order is RE2G_FEATURES."""
+    from baselines import abc_baseline   # deferred: baselines imports evaluate
+    if not {"chrom", "is_promoter"}.issubset(nodes.columns):
+        raise ValueError("--re2g-features needs chrom and is_promoter columns in nodes.parquet")
+    base = pair_feature_matrix(directory, pairs, nodes)
+    benchmark, abc = abc_baseline(directory)
+    if len(benchmark) <= pairs.row_id.max():
+        raise ValueError("crispr.parquet does not match the benchmark rows")
+    activity = np.expm1(nodes.log_atac.to_numpy())
+    counts = np.zeros((len(pairs), 4))
+    for chrom, index in pairs.groupby("chrom").indices.items():
+        on = np.flatnonzero((nodes.chrom == chrom).to_numpy())
+        order = np.argsort(nodes.center.to_numpy()[on], kind="stable")
+        ids, centers = on[order], nodes.center.to_numpy()[on][order]
+        promoter = nodes.is_promoter.to_numpy()[ids].astype(float)
+        cum_promoter, cum_activity = np.r_[0, np.cumsum(promoter)], np.r_[0, np.cumsum(activity[ids])]
+        group = pairs.iloc[index]
+        lo, hi = np.minimum(group.center, group.tss).to_numpy(), np.maximum(group.center, group.tss).to_numpy()
+        left, right = np.searchsorted(centers, lo, "right"), np.searchsorted(centers, hi, "left")
+        inside = lambda node: (np.searchsorted(centers, nodes.center.to_numpy()[node]) >= left) & \
+                              (np.searchsorted(centers, nodes.center.to_numpy()[node]) < right)
+        e, g = group.elem_node.to_numpy(), group.gene_node.to_numpy()
+        between = right - left - inside(e) - (inside(g) & (g != e))
+        tss_between = cum_promoter[right] - cum_promoter[left] - (inside(e) & nodes.is_promoter.to_numpy()[e]) \
+            - (inside(g) & (g != e) & nodes.is_promoter.to_numpy()[g])
+        c = group.center.to_numpy()
+        a, b = np.searchsorted(centers, c - nearby, "left"), np.searchsorted(centers, c + nearby, "right")
+        near_self = np.abs(nodes.center.to_numpy()[e] - c) <= nearby
+        counts[index] = np.column_stack([np.maximum(between, 0), np.maximum(tss_between, 0), b - a - near_self,
+                                         cum_activity[b] - cum_activity[a] - near_self * activity[e]])
+    counts = np.maximum(counts, 0)
+    return np.column_stack([base, np.log(abc[pairs.row_id.to_numpy()] + 1e-3), np.log1p(counts)])
+
+
 @dataclass
 class GraphData:
     benchmark: pd.DataFrame
@@ -56,9 +97,11 @@ class GraphData:
     distance: torch.Tensor
     labels: torch.Tensor
     pair_features: torch.Tensor   # (pairs, 0) unless requested
+    EDGE_PTR: torch.Tensor = None   # CSR row pointers over the sorted directed edges (index matches ETYPE/LOGOE)
+    EDGE_DST: torch.Tensor = None   # target node of each sorted directed edge
 
     @classmethod
-    def load(cls, directory, walks=DEFAULT_WALKS, device="cpu", pair_features=False):
+    def load(cls, directory, walks=DEFAULT_WALKS, device="cpu", pair_features=False, atac=True, seq=True):
         directory = Path(directory)
         nodes = pd.read_parquet(directory / "nodes.parquet")
         edges = pd.read_parquet(directory / "edges.parquet")
@@ -95,9 +138,18 @@ class GraphData:
                 raise ValueError("Cached walks do not match this graph's CSR edge ordering")
         def tensor(a, dtype=None):
             return torch.as_tensor(a, dtype=dtype, device=device)
-        X = np.hstack([nodes[["log_atac"]].values, np.stack(nodes.seq_emb.values)])
+        if not (atac or seq):
+            raise ValueError("Node features need ATAC and/or the sequence embedding")
+        # Ablations: atac=False leaves sequence embeddings only, seq=False leaves ATAC only.
+        X = np.hstack([nodes[["log_atac"]].values if atac else np.zeros((len(nodes), 0)),
+                       np.stack(nodes.seq_emb.values) if seq else np.zeros((len(nodes), 0))])
         distance = np.log1p(pairs.distanceToTSS.abs().to_numpy() / 1000)
-        extra = pair_feature_matrix(directory, pairs, nodes) if pair_features else np.zeros((len(pairs), 0))
+        if pair_features == "re2g":
+            extra = re2g_feature_matrix(directory, pairs, nodes)
+        elif pair_features:
+            extra = pair_feature_matrix(directory, pairs, nodes)
+        else:
+            extra = np.zeros((len(pairs), 0))
         if not np.isfinite(X).all() or not np.isfinite(distance).all() or not np.isfinite(extra).all():
             raise ValueError("Nonfinite node features, pair distances or pair features")
         return cls(benchmark, pairs, tensor(X, torch.float32), tensor(nodes.center.values),
@@ -107,7 +159,9 @@ class GraphData:
                    tensor(np.searchsorted(anchors, pairs.elem_node), torch.long),
                    tensor(np.searchsorted(anchors, pairs.gene_node), torch.long),
                    tensor(distance, torch.float32), tensor(pairs.label.values, torch.float32),
-                   tensor(extra, torch.float32))
+                   tensor(extra, torch.float32),
+                   tensor(np.r_[0, np.cumsum(np.bincount(src, minlength=len(nodes)))], torch.long),
+                   tensor(dst, torch.long))
 
 class TorchMamba(nn.Module):
     # Selective SSM block (Gu & Dao 2023, Alg. 2) in plain PyTorch, same interface as mamba_ssm.Mamba.
@@ -170,7 +224,7 @@ class WalkEncoder(nn.Module):
         super().__init__()
         self.kind = kind
         self.data = data
-        if kind not in ("mamba", "gnn", "attention"):
+        if kind not in ("mamba", "gnn", "attention", "subgraph"):
             raise ValueError(kind)
         self.node = nn.Sequential(nn.LayerNorm(data.X.shape[1]), nn.Linear(data.X.shape[1], d))
         self.etype, self.rho, self.rho_oe = nn.Embedding(3, d), Fourier(d), Fourier(d)   # edge types: 0 chain, 1 Hi-C, 2 anchor
@@ -184,10 +238,29 @@ class WalkEncoder(nn.Module):
         else:
             self.layers = nn.ModuleList(GINEConv(nn.Sequential(nn.Linear(d, d), nn.GELU(), nn.Linear(d, d))) for _ in range(n_layers))
             self.norms = nn.ModuleList(nn.LayerNorm(d) for _ in range(n_layers))
+            if kind == "subgraph":   # virtual node state and the edge embedding linking it to every subgraph node
+                self.virtual, self.virtual_edge = nn.Parameter(torch.zeros(d)), nn.Parameter(torch.zeros(d))
         self.out = nn.LayerNorm(d)
 
     def edge_emb(self, typ, dist, loe):
         return self.etype(typ) + self.rho(dist) + self.rho_oe(loe) * (typ == 1).unsqueeze(-1)
+
+    def subgraph(self, W):
+        """Induced subgraph of each anchor's walk nodes in the parent graph, kept separate per anchor.
+        Returns global node ids of the subgraph nodes, the anchor each belongs to, and the directed parent-graph
+        edges among them as (local source, local target, sorted edge id)."""
+        n_nodes, ptr, target = len(self.data.X), self.data.EDGE_PTR, self.data.EDGE_DST
+        U = W.shape[0]
+        keys = torch.unique(torch.arange(U, device=W.device).view(U, 1, 1) * n_nodes + W)   # sorted (anchor, node)
+        owner, glob = keys // n_nodes, keys % n_nodes
+        degree = ptr[glob + 1] - ptr[glob]
+        src = torch.repeat_interleave(torch.arange(len(keys), device=W.device), degree)
+        start = torch.repeat_interleave(ptr[glob] - torch.cumsum(degree, 0) + degree, degree)
+        eid = start + torch.arange(len(src), device=W.device)
+        wanted = owner[src] * n_nodes + target[eid]
+        pos = torch.searchsorted(keys, wanted).clamp_max(len(keys) - 1)
+        keep = keys[pos] == wanted                                             # neighbour also visited by this anchor
+        return glob, owner, src[keep], pos[keep], eid[keep]
 
     def forward(self, W, E):                                                   # W (U, N, L+1), E (U, N, L) -> z (U, d)
         X, CENTER = self.data.X, self.data.CENTER
@@ -201,6 +274,19 @@ class WalkEncoder(nn.Module):
             h = tok.view(U * N, L1, -1)
             for layer in self.layers: h = layer(h)
             return self.out(h[:, 0]).view(U, N, -1).mean(1)
+        if self.kind == "subgraph":
+            # Walks only pick the nodes; message passing runs on all original edges among them plus one virtual node
+            # per anchor joined to every node of its subgraph, and the virtual node is the readout.
+            glob, owner, src, dst, e = self.subgraph(W)
+            M = len(glob)
+            virtual = M + owner                                                # virtual node index for each subgraph node
+            local = torch.arange(M, device=W.device)
+            edge_index = torch.stack([torch.cat([src, local, virtual]), torch.cat([dst, virtual, local])])
+            ea = torch.cat([self.edge_emb(ETYPE[e], slog(CENTER[glob[dst]] - CENTER[glob[src]]), LOGOE[e]),
+                            self.virtual_edge.expand(2 * M, -1)])
+            h = torch.cat([self.node(X[glob]), self.virtual.expand(U, -1)])
+            for conv, norm in zip(self.layers, self.norms): h = h + conv(norm(h), edge_index, ea)
+            return self.out(h[M:])
         # gnn: union of each anchor's walk edges, kept separate per anchor
         uniq, inv = torch.unique(torch.arange(U, device=W.device).view(U, 1, 1) * len(X) + W, return_inverse=True)
         glob, s, t = uniq % len(X), inv[..., :-1].reshape(-1), inv[..., 1:].reshape(-1)
@@ -215,10 +301,24 @@ class WalkEncoder(nn.Module):
 
 
 
+class EndpointEncoder(nn.Module):
+    """Control for WalkEncoder: the same input projection and output norm applied to the anchor node alone
+    (ATAC + sequence embedding), so the walk is the only thing it lacks."""
+    def __init__(self, data, d=128):
+        super().__init__()
+        self.data = data
+        self.node = nn.Sequential(nn.LayerNorm(data.X.shape[1]), nn.Linear(data.X.shape[1], d))
+        self.out = nn.LayerNorm(d)
+
+    def forward(self, W, E):                                                   # W (U, N, L+1) -> z (U, d)
+        return self.out(self.node(self.data.X[W[:, 0, 0]]))
+
+
 class PairModel(nn.Module):
     """One walk encoder, optionally augmented by log pair distance and other pairwise scalars.
 
-    kind "pairwise" has no encoder: the same head sees only the pairwise scalars (matched control)."""
+    kind "pairwise" has no encoder: the same head sees only the pairwise scalars (matched control).
+    kind "endpoints" embeds only the enhancer and promoter nodes themselves, without walks (context control)."""
     def __init__(self, data, kind, d=128, n_layers=2, distance=False, backend="cuda", pair_product=True):
         super().__init__()
         self.use_distance = distance
@@ -229,9 +329,29 @@ class PairModel(nn.Module):
                 raise ValueError("pairwise needs distance and/or pair features")
             self.enc, width = None, 0
         else:
-            self.enc, width = WalkEncoder(data, kind, d, n_layers, backend), (2 + int(pair_product)) * d
+            enc = EndpointEncoder(data, d) if kind == "endpoints" else WalkEncoder(data, kind, d, n_layers, backend)
+            self.enc, width = enc, (2 + int(pair_product)) * d
         self.mlp = nn.Sequential(nn.Linear(width + scalars, d),
                                  nn.GELU(), nn.Dropout(0.1), nn.Linear(d, 1))
+        # Head scalars (distance, then pair features) are standardized with training-fold statistics set by
+        # set_scalar_stats; the identity defaults reproduce the earlier unstandardized head.
+        self.register_buffer("scalar_mean", torch.zeros(scalars))
+        self.register_buffer("scalar_std", torch.ones(scalars))
+
+    def scalars(self, pair_distance, pair_features):
+        parts = []
+        if self.use_distance:
+            parts.append(pair_distance.unsqueeze(-1))
+        if pair_features is not None and pair_features.shape[1]:
+            parts.append(pair_features)
+        return torch.cat(parts, -1) if parts else None
+
+    @torch.no_grad()
+    def set_scalar_stats(self, pair_distance, pair_features):
+        values = self.scalars(pair_distance, pair_features)
+        if values is not None:
+            self.scalar_mean.copy_(values.mean(0))
+            self.scalar_std.copy_(values.std(0).clamp_min(1e-6))
 
     def forward(self, W, E, pe, pg, pair_distance=None, pair_features=None):
         features = []
@@ -242,10 +362,9 @@ class PairModel(nn.Module):
             features += [ze, zg]
             if self.use_pair_product:
                 features.append(ze * zg)
-        if self.use_distance:
-            features.append(pair_distance.unsqueeze(-1))
-        if pair_features is not None and pair_features.shape[1]:
-            features.append(pair_features)
+        scalars = self.scalars(pair_distance, pair_features)
+        if scalars is not None:
+            features.append((scalars - self.scalar_mean) / self.scalar_std)
         return self.mlp(torch.cat(features, -1)).squeeze(-1)
 
 

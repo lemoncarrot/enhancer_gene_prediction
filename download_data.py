@@ -4,6 +4,8 @@ Run from the project root: python download_data.py
 Requires curl and samtools on PATH.
 """
 
+import gzip
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -31,8 +33,13 @@ def main():
             if not Path(str(path) + ".bai").is_file():
                 subprocess.run(["samtools", "index", str(path)], check=True)
         elif source.get("postprocess") == "gunzip":
-            if not raw_path(raw, "genome_fasta").is_file():
-                subprocess.run(["gunzip", "-k", str(path)], check=True)
+            fasta = raw_path(raw, "genome_fasta")
+            if not fasta.is_file():
+                # Python's gzip rather than `gunzip -k`, which older gzip (e.g. 1.5) lacks.
+                partial = fasta.with_name(fasta.name + ".part")
+                with gzip.open(path, "rb") as source, open(partial, "wb") as target:
+                    shutil.copyfileobj(source, target, 16 * 1024 * 1024)
+                partial.replace(fasta)
 
     print(f"done: {raw.resolve()}")
 

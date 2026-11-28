@@ -8,39 +8,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.sparse import coo_matrix
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from baselines import HIC_RES, scores
+from baselines import abc_score, scores
 from evaluate import metrics
 from models import chromosome_folds
-
-
-def abc_score(pairs, nodes, hic):
-    """ABC-style share: activity x contact of the element, over the same sum for every node on the gene's chromosome
-    (contacts are cached within 5 Mb). Activity is ATAC reads per million only; no H3K27ac, no close-range power-law fix."""
-    out = np.zeros(len(pairs))
-    activity = np.expm1(nodes.log_atac.to_numpy())
-    node_bin = (nodes.center // HIC_RES).to_numpy()
-    for chrom, group in pairs.groupby("chrom"):
-        h = hic[hic.chrom == chrom]
-        on = (nodes.chrom == chrom).to_numpy()
-        size = int(max(h.bin2.max() // HIC_RES, group.tss.max() // HIC_RES, group.center.max() // HIC_RES, node_bin[on].max())) + 1
-        i, j = (h.bin1 // HIC_RES).to_numpy(), (h.bin2 // HIC_RES).to_numpy()
-        off = i != j                                                    # symmetrize without doubling the diagonal
-        contact = coo_matrix((np.r_[h.observed, h.observed[off]], (np.r_[i, j[off]], np.r_[j, i[off]])), shape=(size, size)).tocsr()
-        tss_bins = (group.tss // HIC_RES).to_numpy()
-        unique, inverse = np.unique(tss_bins, return_inverse=True)
-        rows = contact[unique][:, node_bin[on]]                         # contact from each TSS bin to every node on the chromosome
-        denominator = np.asarray(rows @ activity[on])[inverse]
-        covered = (group.elem_node >= 0).to_numpy()
-        numerator = np.zeros(len(group))
-        numerator[covered] = activity[group.elem_node.to_numpy()[covered]] * group.hic_contact.to_numpy()[covered]
-        out[pairs.index.get_indexer(group.index)] = numerator / np.maximum(denominator, 1e-12)
-    return out
 
 
 def main():

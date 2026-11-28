@@ -31,6 +31,8 @@ Pass a directory containing these four files with `--data-dir` (default `data/pr
 
 The existing server backup contains these files under `data/processed`; no raw BAM downloads or embedding recomputation are needed to rerun training from that backup. The loader checks anchor ordering and every walk edge against the graph. Keep the files together; independently regenerated caches are not interchangeable merely because their shapes match.
 
+To rebuild them from scratch instead, run `python download_data.py`, `python prepare_data.py cpu` (network access for the remote Hi-C file), then `python prepare_data.py embed` (GPU). [sherlock/](sherlock/) has Slurm scripts for these steps and for experiments 7 and 8.
+
 ## Train and resume
 
 Each command is independent: it does not need another model's checkpoints or predictions.

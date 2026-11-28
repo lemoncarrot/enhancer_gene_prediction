@@ -1,4 +1,4 @@
-"""Non-learned baselines on the CRISPR benchmark: genomic distance and Hi-C edge presence.
+"""Non-learned baselines on the CRISPR benchmark: genomic distance, Hi-C contact and edges, and an ABC-style score.
 
 Usage: python baselines.py [--data-dir data/processed] [--output results/baselines.csv]
 """
@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.sparse import coo_matrix
 
 from evaluate import metrics
 
@@ -39,12 +40,47 @@ def scores(directory):
                             "hic_edge", "hic_edge_oe", "hic_edge_then_distance"]
 
 
+def abc_score(pairs, nodes, hic):
+    """ABC-style share: activity x contact of the element, over the same sum for every node on the gene's chromosome
+    (contacts are cached within 5 Mb). Activity is ATAC reads per million only; no H3K27ac, no close-range power-law fix."""
+    out = np.zeros(len(pairs))
+    activity = np.expm1(nodes.log_atac.to_numpy())
+    node_bin = (nodes.center // HIC_RES).to_numpy()
+    for chrom, group in pairs.groupby("chrom"):
+        h = hic[hic.chrom == chrom]
+        if h.empty:
+            continue                                                    # no recorded contacts: score stays 0
+        on = (nodes.chrom == chrom).to_numpy()
+        size = int(max(h.bin2.max() // HIC_RES, group.tss.max() // HIC_RES, group.center.max() // HIC_RES, node_bin[on].max())) + 1
+        i, j = (h.bin1 // HIC_RES).to_numpy(), (h.bin2 // HIC_RES).to_numpy()
+        off = i != j                                                    # symmetrize without doubling the diagonal
+        contact = coo_matrix((np.r_[h.observed, h.observed[off]], (np.r_[i, j[off]], np.r_[j, i[off]])), shape=(size, size)).tocsr()
+        tss_bins = (group.tss // HIC_RES).to_numpy()
+        unique, inverse = np.unique(tss_bins, return_inverse=True)
+        rows = contact[unique][:, node_bin[on]]                         # contact from each TSS bin to every node on the chromosome
+        denominator = np.asarray(rows @ activity[on])[inverse]
+        covered = (group.elem_node >= 0).to_numpy()
+        numerator = np.zeros(len(group))
+        numerator[covered] = activity[group.elem_node.to_numpy()[covered]] * group.hic_contact.to_numpy()[covered]
+        out[pairs.index.get_indexer(group.index)] = numerator / np.maximum(denominator, 1e-12)
+    return out
+
+
+def abc_baseline(directory):
+    """ABC-style score for every benchmark row (crispr.parquet order); 0 when the element has no node."""
+    pairs, _, _ = scores(directory)
+    nodes = pd.read_parquet(directory / "nodes.parquet", columns=["chrom", "center", "log_atac"])
+    return pairs, abc_score(pairs, nodes, pd.read_parquet(directory / "hic"))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=Path("data/processed"))
     parser.add_argument("--output", type=Path, default=Path("results/baselines.csv"))
     args = parser.parse_args()
     pairs, covered, models = scores(args.data_dir)
+    _, pairs["abc"] = abc_baseline(args.data_dir)
+    models.append("abc")
     rows = []
     for scope, data in [("All benchmark pairs", pairs), ("Covered pairs only", pairs[covered])]:
         for dataset, group in [("Pooled", data), *data.groupby("Dataset")]:

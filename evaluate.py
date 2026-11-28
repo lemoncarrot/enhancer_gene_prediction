@@ -10,7 +10,14 @@ from sklearn.metrics import average_precision_score, precision_recall_curve
 
 MODELS = ["mamba", "gnn", "attention", "mamba_distance", "gnn_distance", "attention_distance", "combined_distance",
           "pairwise_distance", *(f"{model}{suffix}" for model in ["mamba", "gnn", "attention", "pairwise"]
-                                 for suffix in ["_pairfeat", "_distance_pairfeat"])]
+                                 for suffix in ["_pairfeat", "_distance_pairfeat"]),
+          *(f"{model}{suffix}" for model in ["mamba", "gnn", "attention"] for suffix in ["_noatac", "_distance_noatac"]),
+          *(f"endpoints{suffix}" for suffix in ["", "_distance", "_pairfeat", "_distance_pairfeat", "_noatac", "_distance_noatac"]),
+          *(f"{model}{suffix}" for model in ["mamba", "gnn", "attention", "pairwise", "endpoints", "subgraph"]
+            for suffix in ["_re2g", "_distance_re2g"]),
+          *(f"subgraph{suffix}" for suffix in ["", "_distance", "_pairfeat", "_distance_pairfeat"]),
+          *(f"{model}{suffix}" for model in ["mamba", "gnn", "attention", "endpoints"]
+            for suffix in ["_noseq", "_distance_noseq", "_pairfeat_noseq", "_distance_pairfeat_noseq"])]
 
 
 def load_predictions(paths):
@@ -31,7 +38,7 @@ def load_predictions(paths):
         columns = [name for name in MODELS if name in frame]
         if not columns:
             raise ValueError(f"{path}: no supported model logits")
-        metadata = frame.drop(columns=[c for c in [*MODELS, "distance"] if c in frame])
+        metadata = frame.drop(columns=[c for c in [*MODELS, "distance", "abc"] if c in frame])
         if base is None:
             base = metadata.copy()
         else:
@@ -65,10 +72,23 @@ def metrics(frame, models, **group):
     return rows
 
 
-def evaluate(paths, output, ensemble=None):
+def add_abc(frame, models, data_dir):
+    """Add the ABC-style score from <data_dir> as a second non-learned baseline, after distance."""
+    from baselines import abc_baseline   # deferred: baselines imports this module
+    pairs, abc = abc_baseline(Path(data_dir))
+    if len(pairs) != len(frame) or not np.array_equal(pairs.label.to_numpy(), frame.label.to_numpy()) \
+            or not np.array_equal(pairs.chrom.to_numpy(), frame.chrom.to_numpy()):
+        raise ValueError(f"{data_dir}: benchmark rows do not match the predictions")
+    frame["abc"] = abc
+    models.insert(1, "abc")
+
+
+def evaluate(paths, output, ensemble=None, data_dir=None):
     frame, models = load_predictions(paths)
+    if data_dir is not None:
+        add_abc(frame, models, data_dir)
     if ensemble:
-        if len(set(ensemble)) != 2 or any(name not in models or name == "distance" for name in ensemble):
+        if len(set(ensemble)) != 2 or any(name not in models or name in ("distance", "abc") for name in ensemble):
             raise ValueError("Ensemble needs two distinct learned models present in the inputs")
         frame["ensemble"] = (expit(frame[ensemble[0]]) + expit(frame[ensemble[1]])) / 2
         models.append("ensemble")
@@ -87,6 +107,7 @@ def evaluate(paths, output, ensemble=None):
     frame.reset_index().to_parquet(output / "predictions.parquet", index=False)
     (output / "evaluation.json").write_text(json.dumps(
         dict(inputs=[str(Path(p).resolve()) for p in paths], ensemble=ensemble,
+             abc_data_dir=str(Path(data_dir).resolve()) if data_dir is not None else None,
              ensemble_rule="equal mean of sigmoid logits" if ensemble else None), indent=2) + "\n")
     return results
 
@@ -96,10 +117,13 @@ def main():
     parser.add_argument("predictions", nargs="+", type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--ensemble", nargs=2, metavar=("MODEL_A", "MODEL_B"))
+    parser.add_argument("--data-dir", type=Path, default=Path("data/processed"),
+                        help="Cached inputs for the ABC baseline (nodes, edges, crispr, hic)")
+    parser.add_argument("--no-abc", action="store_true", help="Report distance as the only baseline")
     args = parser.parse_args()
     if any(args.output_dir.resolve() == p.parent.resolve() for p in args.predictions):
         parser.error("Use a separate evaluation directory to preserve input predictions")
-    result = evaluate(args.predictions, args.output_dir, args.ensemble)
+    result = evaluate(args.predictions, args.output_dir, args.ensemble, None if args.no_abc else args.data_dir)
     print(result[result.dataset == "Pooled"].to_string(index=False))
 
 

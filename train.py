@@ -67,6 +67,8 @@ def fit_predict(data, cfg, train, test):
         model = PairModel(data, cfg["model"], cfg["d"], cfg["layers"], cfg["distance"],
                           cfg["backend"], cfg["pair_product"])
     model.to(data.X.device)
+    if cfg.get("standardize_scalars"):
+        model.set_scalar_stats(data.distance[train], data.pair_features[train])   # training pairs only
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["wd"])
     positives = data.labels[train].sum()
     if positives == 0 or positives == len(train):
@@ -103,10 +105,18 @@ def parse_args():
     parser.add_argument("--data-dir", type=Path, default=Path("data/processed"))
     parser.add_argument("--walks", default=DEFAULT_WALKS, help="Cache filename relative to data-dir")
     parser.add_argument("--run-dir", type=Path, required=True)
-    parser.add_argument("--model", choices=["mamba", "gnn", "attention", "combined", "pairwise"], required=True)
+    parser.add_argument("--model", choices=["mamba", "gnn", "attention", "combined", "pairwise", "endpoints", "subgraph"], required=True)
     parser.add_argument("--distance", action="store_true", help="Add pair distance (always enabled for combined)")
     parser.add_argument("--pair-features", action="store_true",
-                        help="Also give the head log raw Hi-C contact and ATAC at both ends (needs <data-dir>/hic)")
+                        help="Also give the head log raw Hi-C contact and ATAC at both ends (needs <data-dir>/hic). "
+                             "Kept to reproduce experiment 7; use --re2g-features for new runs")
+    parser.add_argument("--re2g-features", action="store_true",
+                        help="rE2G-style head inputs: the pair features plus ABC score, element/TSS counts between "
+                             "the ends, and nearby elements and their ATAC (needs <data-dir>/hic; implies --pair-features)")
+    parser.add_argument("--no-atac", action="store_true", help="Drop ATAC from the node inputs (sequence embedding only)")
+    parser.add_argument("--no-seq", action="store_true", help="Drop the HyenaDNA embedding from the node inputs (ATAC only)")
+    parser.add_argument("--raw-scalars", action="store_true",
+                        help="Feed distance/pair features to the head unstandardized (reproduces experiments 1-8)")
     parser.add_argument("--no-pair-product", action="store_true", help="Omit elementwise enhancer-promoter product from prediction head")
     parser.add_argument("--backend", choices=["cuda", "torch"], default="cuda", help="Mamba backend; torch is a separate CPU/debug implementation")
     parser.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
@@ -116,6 +126,7 @@ def parse_args():
     parser.add_argument("--wd", type=float, default=1e-2)
     parser.add_argument("--resume", action="store_true", help="Reuse verified completed folds; restart any interrupted fold")
     args = parser.parse_args()
+    args.pair_features = args.pair_features or args.re2g_features
     if any(getattr(args, k) < 1 for k in ["d", "layers", "epochs", "batch", "threads"]) or args.lr <= 0 or args.wd < 0:
         parser.error("Sizes, epochs, threads and learning rate must be positive; wd must be nonnegative")
     if args.model in ("mamba", "combined") and args.backend == "cuda" and args.device != "cuda":
@@ -124,6 +135,10 @@ def parse_args():
         parser.error("--pair-features is not implemented for the combined model")
     if args.model == "pairwise" and not (args.distance or args.pair_features):
         parser.error("pairwise has no encoder; pass --distance and/or --pair-features")
+    if args.no_atac and (args.model == "pairwise" or args.pair_features):
+        parser.error("--no-atac ablates node inputs; it needs a walk encoder and no --pair-features (which include ATAC)")
+    if args.no_seq and (args.model == "pairwise" or args.no_atac):
+        parser.error("--no-seq ablates node inputs; it needs an encoder and cannot be combined with --no-atac")
     if args.device == "cuda" and not torch.cuda.is_available():
         parser.error("CUDA is unavailable; use a CUDA environment or --device cpu")
     return args
@@ -132,15 +147,23 @@ def parse_args():
 def main():
     args = parse_args()
     torch.set_num_threads(args.threads)
-    cfg = {k: v for k, v in vars(args).items() if k not in ["data_dir", "walks", "run_dir", "resume", "no_pair_product"]}
+    cfg = {k: v for k, v in vars(args).items() if k not in ["data_dir", "walks", "run_dir", "resume", "no_pair_product", "no_atac", "no_seq", "re2g_features", "raw_scalars"]}
     cfg["distance"] = args.distance or args.model == "combined"
     cfg["pair_product"] = not args.no_pair_product
+    if args.model != "combined":
+        cfg["standardize_scalars"] = not args.raw_scalars
+    if args.no_atac:   # only recorded when ablated, so manifests of earlier runs still resume
+        cfg["atac"] = False
+    if args.no_seq:
+        cfg["seq"] = False
+    if args.re2g_features:   # only recorded when used, so manifests of earlier runs still resume
+        cfg["re2g_features"] = True
     cfg["backend"] = args.backend if args.model in ("mamba", "combined") else "none"
     packages = ["torch", "torch-geometric", "numpy", "pandas", "pyarrow"]
     if cfg["backend"] == "cuda":
         from mamba_ssm import Mamba  # fail early; never silently switch model implementations
         packages += ["mamba-ssm", "causal-conv1d"]
-    tag = args.model + ("_distance" if cfg["distance"] else "") + ("_pairfeat" if args.pair_features else "")
+    tag = args.model + ("_distance" if cfg["distance"] else "") + ("_re2g" if args.re2g_features else "_pairfeat" if args.pair_features else "") + ("_noatac" if args.no_atac else "") + ("_noseq" if args.no_seq else "")
     with run_lock(args.run_dir):
         files = {name: sha256(args.data_dir / name) for name in ["nodes.parquet", "edges.parquet", "crispr.parquet", args.walks]}
         if args.pair_features:
@@ -148,7 +171,7 @@ def main():
             if not contacts:
                 raise ValueError("--pair-features needs the cached Hi-C contacts in <data-dir>/hic")
             files.update({f"hic/{path.name}": sha256(path) for path in contacts})
-        data = GraphData.load(args.data_dir, args.walks, args.device, args.pair_features)
+        data = GraphData.load(args.data_dir, args.walks, args.device, "re2g" if args.re2g_features else args.pair_features, not args.no_atac, not args.no_seq)
         fold_of = chromosome_folds(data.benchmark, cfg["folds"])
         data.pairs["fold"] = data.pairs.chrom.map(fold_of)
         for k in range(cfg["folds"]):
